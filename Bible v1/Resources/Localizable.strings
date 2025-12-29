@@ -1,0 +1,182 @@
+/* 
+  Localizable.strings
+  Bible v1
+
+  Advanced Bible Reader App
+  
+  English (Base) Localization
+*/
+
+// MARK: - Tab Bar
+
+"tab.read" = "Read";
+"tab.search" = "Search";
+"tab.compare" = "Compare";
+"tab.saved" = "Saved";
+"tab.settings" = "Settings";
+
+// MARK: - Navigation
+
+"nav.back" = "Back";
+"nav.done" = "Done";
+"nav.cancel" = "Cancel";
+"nav.save" = "Save";
+"nav.delete" = "Delete";
+"nav.edit" = "Edit";
+
+// MARK: - Reader
+
+"reader.select_translation" = "Select Translation";
+"reader.select_book" = "Select Book";
+"reader.select_chapter" = "Select Chapter";
+"reader.loading" = "Loading scripture...";
+"reader.no_chapter" = "No Chapter Selected";
+"reader.no_chapter_message" = "Select a book and chapter to begin reading";
+"reader.browse_books" = "Browse Books";
+
+// MARK: - Testament
+
+"testament.old" = "Old Testament";
+"testament.new" = "New Testament";
+"testament.old_short" = "OT";
+"testament.new_short" = "NT";
+
+// MARK: - Search
+
+"search.title" = "Search";
+"search.placeholder" = "Search verses or enter reference";
+"search.no_results" = "No Results";
+"search.no_results_message" = "Try a different search term or check spelling";
+"search.clear" = "Clear Search";
+"search.recent" = "Recent";
+"search.popular" = "Popular Verses";
+"search.tips" = "Search Tips";
+"search.scope.current" = "Current";
+"search.scope.old_testament" = "Old Testament";
+"search.scope.new_testament" = "New Testament";
+
+// MARK: - Favorites
+
+"favorites.title" = "Saved";
+"favorites.tab.favorites" = "Favorites";
+"favorites.tab.highlights" = "Highlights";
+"favorites.tab.notes" = "Notes";
+"favorites.empty" = "No Favorites Yet";
+"favorites.empty_message" = "Long-press on any verse while reading to save it to your favorites";
+"highlights.empty" = "No Highlights Yet";
+"highlights.empty_message" = "Highlight verses while reading to find them here";
+"notes.empty" = "No Notes Yet";
+"notes.empty_message" = "Add notes to verses for your personal study";
+
+// MARK: - Verse Actions
+
+"verse.favorite" = "Add to Favorites";
+"verse.unfavorite" = "Remove from Favorites";
+"verse.highlight" = "Highlight";
+"verse.remove_highlight" = "Remove Highlight";
+"verse.add_note" = "Add Note";
+"verse.copy" = "Copy";
+"verse.share" = "Share";
+
+// MARK: - Highlight Colors
+
+"color.yellow" = "Yellow";
+"color.green" = "Green";
+"color.blue" = "Blue";
+"color.pink" = "Pink";
+"color.purple" = "Purple";
+"color.orange" = "Orange";
+
+// MARK: - Settings
+
+"settings.title" = "Settings";
+"settings.appearance" = "Appearance";
+"settings.theme" = "Theme";
+"settings.font" = "Font";
+"settings.reading" = "Reading";
+"settings.font_size" = "Font Size";
+"settings.line_spacing" = "Line Spacing";
+"settings.preview" = "Preview";
+"settings.reset_defaults" = "Reset to Defaults";
+"settings.offline" = "Offline Reading";
+"settings.downloads" = "Manage Downloads";
+"settings.cache_size" = "Cache Size";
+"settings.clear_cache" = "Clear Cache";
+"settings.your_data" = "Your Data";
+"settings.clear_all_data" = "Clear All User Data";
+"settings.about" = "About";
+"settings.version" = "Version";
+"settings.acknowledgments" = "Acknowledgments";
+
+// MARK: - Themes
+
+"theme.system" = "System";
+"theme.light" = "Light";
+"theme.dark" = "Dark";
+"theme.sepia" = "Sepia";
+
+// MARK: - Fonts
+
+"font.system" = "System";
+"font.serif" = "Serif";
+"font.georgia" = "Georgia";
+"font.palatino" = "Palatino";
+"font.new_york" = "New York";
+
+// MARK: - Audio
+
+"audio.listen" = "Listen";
+"audio.play" = "Play";
+"audio.pause" = "Pause";
+"audio.stop" = "Stop";
+"audio.previous" = "Previous";
+"audio.next" = "Next";
+"audio.speed" = "Speed";
+
+// MARK: - Compare
+
+"compare.title" = "Compare";
+"compare.select_translation" = "Select Translation";
+"compare.clear_selection" = "Clear Selection";
+"compare.side_by_side" = "Side by Side";
+"compare.interleaved" = "Interleaved";
+
+// MARK: - Downloads
+
+"downloads.title" = "Downloads";
+"downloads.downloaded" = "Downloaded";
+"downloads.available" = "Available";
+"downloads.downloading" = "Downloading...";
+
+// MARK: - Alerts
+
+"alert.error" = "Error";
+"alert.retry" = "Retry";
+"alert.ok" = "OK";
+"alert.clear_data_title" = "Clear All Data";
+"alert.clear_data_message" = "This will remove all your favorites, highlights, and notes. This cannot be undone.";
+"alert.clear_cache_title" = "Clear Cache";
+"alert.clear_cache_message" = "This will remove all downloaded translations and cached data.";
+"alert.clear" = "Clear";
+
+// MARK: - Empty States
+
+"empty.no_internet" = "No Internet Connection";
+"empty.no_internet_message" = "Please check your connection and try again.";
+"empty.try_again" = "Try Again";
+
+// MARK: - Accessibility
+
+"a11y.verse_number" = "Verse %d";
+"a11y.chapter_number" = "Chapter %d";
+"a11y.next_chapter" = "Next chapter";
+"a11y.previous_chapter" = "Previous chapter";
+"a11y.play_audio" = "Play audio";
+"a11y.pause_audio" = "Pause audio";
+"a11y.favorited" = "Favorited";
+"a11y.highlighted" = "Highlighted";
+"a11y.has_note" = "Has note";
+
+
+
+

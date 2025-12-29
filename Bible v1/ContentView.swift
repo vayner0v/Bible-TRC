@@ -2,20 +2,15 @@
 //  ContentView.swift
 //  Bible v1
 //
-//  Created by Edward Amirain on 12/16/25.
+//  Advanced Bible Reader App
 //
 
 import SwiftUI
 
+/// Legacy ContentView - redirects to HomeView
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        HomeView()
     }
 }
 
