@@ -7,6 +7,8 @@
 
 import SwiftUI
 import UserNotifications
+import Amplify
+import AWSCognitoAuthPlugin
 
 @main
 struct Bible_v1App: App {
@@ -27,6 +29,25 @@ struct Bible_v1App: App {
         // This sets up notification categories for actions (Pray Now, Snooze, Dismiss)
         // and ensures the delegate is assigned before any notifications arrive
         setupNotifications()
+        
+        // Configure AWS Amplify for authentication
+        configureAmplify()
+    }
+    
+    /// Configure AWS Amplify with Cognito authentication
+    private func configureAmplify() {
+        do {
+            try Amplify.add(plugin: AWSCognitoAuthPlugin())
+            try Amplify.configure()
+            print("✅ Amplify configured successfully")
+            
+            // Check auth session on app launch
+            Task {
+                await AuthService.shared.checkAuthSession()
+            }
+        } catch {
+            print("❌ Failed to configure Amplify: \(error)")
+        }
     }
     
     var body: some Scene {
@@ -67,6 +88,11 @@ struct Bible_v1App: App {
             }
             .privacyBlur()
             .preferredColorScheme(themeManager.selectedTheme.colorScheme)
+            .onOpenURL { url in
+                // Handle OAuth callback URLs for social login
+                // URLs like biblev1://callback will be handled here
+                print("📱 Received URL: \(url)")
+            }
             .onAppear {
                 // Refresh pending notifications when app becomes active
                 notificationService.refreshPendingNotifications()

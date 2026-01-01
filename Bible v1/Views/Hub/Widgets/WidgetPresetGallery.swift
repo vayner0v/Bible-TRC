@@ -151,7 +151,7 @@ struct WidgetPresetGallery: View {
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
                 ForEach(Array(WidgetPreset.allPresets.enumerated()), id: \.element.id) { index, preset in
-                    PresetCard(
+                    WidgetPresetCard(
                         preset: preset,
                         widgetType: widgetType,
                         size: selectedSize,
@@ -281,7 +281,7 @@ struct SizePickerButton: View {
     }
 }
 
-struct PresetCard: View {
+struct WidgetPresetCard: View {
     let preset: WidgetPreset
     let widgetType: BibleWidgetType
     let size: WidgetSize

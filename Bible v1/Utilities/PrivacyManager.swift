@@ -93,11 +93,19 @@ class PrivacyManager: ObservableObject {
         }
     }
     
+    /// Local-only mode - when true, data stays on device only
+    /// When turned OFF, user must authenticate first
     @Published var localOnlyMode: Bool {
         didSet {
             defaults.set(localOnlyMode, forKey: Keys.localOnlyMode)
         }
     }
+    
+    /// Flag to show auth sheet when user tries to disable local-only mode
+    @Published var shouldShowAuthSheet: Bool = false
+    
+    /// Pending local-only mode change (awaiting authentication)
+    @Published var pendingLocalOnlyModeChange: Bool? = nil
     
     @Published var blurOnBackground: Bool {
         didSet {
@@ -107,6 +115,13 @@ class PrivacyManager: ObservableObject {
     
     @Published private(set) var isLocked: Bool = false
     @Published private(set) var biometricType: LABiometryType = .none
+    
+    // MARK: - Cloud Sync Properties
+    
+    /// Returns true if user is authenticated and cloud sync is enabled
+    var isCloudSyncEnabled: Bool {
+        !localOnlyMode && AuthService.shared.isAuthenticated
+    }
     
     private var lastActiveTime: Date?
     private var cancellables = Set<AnyCancellable>()
@@ -391,6 +406,45 @@ class PrivacyManager: ObservableObject {
             return false
         }
         return true
+    }
+    
+    // MARK: - Local-Only Mode & Cloud Sync
+    
+    /// Request to disable local-only mode
+    /// This will trigger authentication if user is not already authenticated
+    func requestDisableLocalOnlyMode() {
+        if AuthService.shared.isAuthenticated {
+            // Already authenticated, disable immediately
+            localOnlyMode = false
+        } else {
+            // Need to authenticate first
+            pendingLocalOnlyModeChange = false
+            shouldShowAuthSheet = true
+        }
+    }
+    
+    /// Called when authentication completes successfully
+    func onAuthenticationSuccess() {
+        if let pending = pendingLocalOnlyModeChange {
+            localOnlyMode = pending
+        }
+        pendingLocalOnlyModeChange = nil
+        shouldShowAuthSheet = false
+    }
+    
+    /// Called when user cancels authentication
+    func onAuthenticationCancelled() {
+        pendingLocalOnlyModeChange = nil
+        shouldShowAuthSheet = false
+        // Revert to local-only mode if it was the pending change
+        localOnlyMode = true
+    }
+    
+    /// Enable local-only mode (sign out from cloud)
+    func enableLocalOnlyMode() async {
+        // Sign out from cloud
+        await AuthService.shared.signOut()
+        localOnlyMode = true
     }
     
     // MARK: - Reset

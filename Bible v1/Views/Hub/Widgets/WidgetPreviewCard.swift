@@ -138,7 +138,7 @@ struct WidgetPreviewCard: View {
             }
             
             // Verse text
-            Text(""For God so loved the world, that he gave his only Son..."")
+            Text("\"For God so loved the world, that he gave his only Son...\"")
                 .font(bodyFont)
                 .foregroundColor(config.bodyStyle.color.color)
                 .multilineTextAlignment(config.textAlignment.alignment)

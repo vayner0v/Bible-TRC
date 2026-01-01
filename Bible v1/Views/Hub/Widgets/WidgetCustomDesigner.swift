@@ -324,7 +324,7 @@ struct WidgetCustomDesigner: View {
                 ], id: \.2) { start, end, symbol in
                     GradientDirectionButton(
                         symbol: symbol,
-                        isSelected: gradientDirection == (start, end),
+                        isSelected: gradientDirection?.0 == start && gradientDirection?.1 == end,
                         onTap: {
                             setGradientDirection(start: start, end: end)
                         }
@@ -590,7 +590,7 @@ struct WidgetCustomDesigner: View {
             DesignerSection(title: "Text Alignment") {
                 HStack(spacing: 8) {
                     ForEach(WidgetTextAlignment.allCases, id: \.rawValue) { alignment in
-                        AlignmentButton(
+                        WidgetAlignmentButton(
                             alignment: alignment,
                             isSelected: config.textAlignment == alignment,
                             onTap: {
@@ -921,7 +921,7 @@ struct SizeButton: View {
     }
 }
 
-struct AlignmentButton: View {
+struct WidgetAlignmentButton: View {
     let alignment: WidgetTextAlignment
     let isSelected: Bool
     let onTap: () -> Void

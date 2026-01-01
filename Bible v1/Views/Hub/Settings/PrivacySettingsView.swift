@@ -90,14 +90,51 @@ struct PrivacySettingsView: View {
             
             // Data Section
             Section {
-                Toggle(isOn: $privacyManager.localOnlyMode) {
+                Toggle(isOn: Binding(
+                    get: { privacyManager.localOnlyMode },
+                    set: { newValue in
+                        if newValue {
+                            // Turning ON local-only mode (disabling cloud sync)
+                            Task {
+                                await privacyManager.enableLocalOnlyMode()
+                            }
+                        } else {
+                            // Turning OFF local-only mode (enabling cloud sync)
+                            // This requires authentication
+                            privacyManager.requestDisableLocalOnlyMode()
+                        }
+                    }
+                )) {
                     Label("Local-Only Mode", systemImage: "iphone")
                 }
                 .tint(themeManager.accentColor)
+                
+                // Show sync status when cloud sync is enabled
+                if !privacyManager.localOnlyMode && AuthService.shared.isAuthenticated {
+                    HStack {
+                        Image(systemName: "checkmark.icloud.fill")
+                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Cloud Sync Enabled")
+                                .font(.subheadline)
+                                .foregroundColor(themeManager.textColor)
+                            if let user = AuthService.shared.currentUser {
+                                Text(user.email)
+                                    .font(.caption)
+                                    .foregroundColor(themeManager.secondaryTextColor)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
             } header: {
                 Text("Data Storage")
             } footer: {
-                Text("When enabled, all data stays on your device and is never synced to the cloud")
+                if privacyManager.localOnlyMode {
+                    Text("When enabled, all data stays on your device and is never synced to the cloud")
+                } else {
+                    Text("Your data is synced securely across your devices")
+                }
             }
             .listRowBackground(themeManager.cardBackgroundColor)
             
@@ -128,6 +165,16 @@ struct PrivacySettingsView: View {
             }
         }) {
             SetPasscodeSheet()
+        }
+        .sheet(isPresented: $privacyManager.shouldShowAuthSheet) {
+            AuthView(
+                onAuthenticated: {
+                    privacyManager.onAuthenticationSuccess()
+                },
+                onCancel: {
+                    privacyManager.onAuthenticationCancelled()
+                }
+            )
         }
         .alert("Biometric Not Available", isPresented: $showBiometricError) {
             Button("OK", role: .cancel) { }
