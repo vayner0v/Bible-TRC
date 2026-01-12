@@ -11,9 +11,14 @@ struct ReadingSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var themeManager = ThemeManager.shared
     @ObservedObject private var presetStore = ReadingPresetStore.shared
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     
     @State private var previewVerseIndex = 0
     @State private var showCreatePreset = false
+    @State private var selectedPremiumFamily: ThemeFamily?
+    @State private var showThemeStudioSheet = false
+    @State private var showPaywall = false
+    @State private var showThemeStudioPurchase = false
     
     private let previewVerses = [
         ("John 3:16", "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life."),
@@ -30,6 +35,9 @@ struct ReadingSettingsView: View {
             
             ScrollView {
                 VStack(spacing: 24) {
+                    // Theme Section (NEW)
+                    themeSection
+                    
                     // Presets Section
                     presetsSection
                     
@@ -52,6 +60,119 @@ struct ReadingSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showCreatePreset) {
             CreatePresetSheet()
+        }
+        .sheet(item: $selectedPremiumFamily) { family in
+            ThemeModePickerSheet(themeFamily: family) { theme in
+                settings.selectedTheme = theme
+            }
+        }
+        .sheet(isPresented: $showThemeStudioSheet) {
+            ThemeStudioView()
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
+        .sheet(isPresented: $showThemeStudioPurchase) {
+            ThemeStudioPurchaseSheet()
+        }
+    }
+    
+    // MARK: - Theme Section
+    
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("THEME")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(themeManager.secondaryTextColor)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 16) {
+                // Free themes
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Standard Themes")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(themeManager.secondaryTextColor)
+                    
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach(AppTheme.freeThemes) { theme in
+                            ReadingThemeCard(
+                                theme: theme,
+                                isSelected: settings.selectedTheme == theme,
+                                themeManager: themeManager
+                            ) {
+                                settings.selectedTheme = theme
+                                HapticManager.shared.selection()
+                            }
+                        }
+                    }
+                }
+                
+                Divider()
+                    .background(themeManager.dividerColor)
+                
+                // Premium themes
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text("Premium Themes")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                        
+                        if subscriptionManager.isPremium {
+                            Image(systemName: "crown.fill")
+                                .font(.caption2)
+                                .foregroundColor(.yellow)
+                        } else {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                    }
+                    
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach(AppTheme.premiumFamilies, id: \.self) { family in
+                            ReadingPremiumThemeCard(
+                                family: family,
+                                isLocked: !subscriptionManager.isPremium,
+                                isSelected: settings.selectedTheme.family == family,
+                                themeManager: themeManager
+                            ) {
+                                if subscriptionManager.isPremium {
+                                    selectedPremiumFamily = family
+                                } else {
+                                    showPaywall = true
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Divider()
+                    .background(themeManager.dividerColor)
+                
+                // Custom theme
+                CustomThemeButtonView(
+                    isPurchased: subscriptionManager.canUseThemeStudio,
+                    isSelected: settings.selectedTheme == .custom,
+                    themeManager: themeManager,
+                    onTap: {
+                        if subscriptionManager.canUseThemeStudio {
+                            showThemeStudioSheet = true
+                        } else {
+                            showThemeStudioPurchase = true
+                        }
+                    },
+                    onApply: {
+                        settings.selectedTheme = .custom
+                        HapticManager.shared.success()
+                    }
+                )
+            }
+            .padding()
+            .background(themeManager.cardBackgroundColor)
+            .cornerRadius(14)
         }
     }
     
@@ -586,6 +707,125 @@ struct SettingPreviewRow: View {
                 .fontWeight(.medium)
                 .foregroundColor(themeManager.textColor)
         }
+    }
+}
+
+// MARK: - Reading Theme Card
+
+struct ReadingThemeCard: View {
+    let theme: AppTheme
+    let isSelected: Bool
+    let themeManager: ThemeManager
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: theme.icon)
+                    .font(.title3)
+                
+                Text(theme.shortName)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(isSelected ? themeManager.accentColor.opacity(0.15) : Color.clear)
+            .foregroundColor(isSelected ? themeManager.accentColor : themeManager.secondaryTextColor)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? themeManager.accentColor : themeManager.dividerColor, lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .accessibilityLabel("\(theme.displayName) theme")
+        .accessibilityValue(isSelected ? "Selected" : "")
+    }
+}
+
+// MARK: - Reading Premium Theme Card
+
+struct ReadingPremiumThemeCard: View {
+    let family: ThemeFamily
+    let isLocked: Bool
+    let isSelected: Bool
+    let themeManager: ThemeManager
+    let action: () -> Void
+    
+    private var gradientColors: [Color] {
+        switch family {
+        case .velvet:
+            return [Color(hex: "C9A24B"), Color(hex: "8A5D00")]
+        case .frostedGlass:
+            return [Color(hex: "0A84FF"), Color(hex: "0069FF")]
+        case .aurora:
+            return [Color(hex: "14B8A6"), Color(hex: "A855F7")]
+        default:
+            return [themeManager.accentColor, themeManager.accentColor.opacity(0.7)]
+        }
+    }
+    
+    @ViewBuilder
+    private var backgroundGradient: some View {
+        if isSelected {
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                .opacity(0.15)
+        } else {
+            Color.clear
+        }
+    }
+    
+    private var borderGradient: LinearGradient {
+        if isSelected {
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            LinearGradient(colors: [themeManager.dividerColor], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Image(systemName: family.icon)
+                        .font(.title3)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: isSelected ? gradientColors : [themeManager.secondaryTextColor],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.white)
+                            .padding(3)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                            .offset(x: 12, y: -10)
+                    }
+                }
+                
+                Text(family.displayName)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(backgroundGradient)
+            .foregroundColor(isSelected ? gradientColors[0] : themeManager.secondaryTextColor)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(borderGradient, lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .accessibilityLabel("\(family.displayName) theme")
+        .accessibilityValue(isLocked ? "Locked, requires premium" : (isSelected ? "Selected" : ""))
     }
 }
 

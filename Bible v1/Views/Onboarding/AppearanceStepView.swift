@@ -46,14 +46,14 @@ struct AppearanceStepView: View {
             
             ScrollView {
                 VStack(spacing: 24) {
-                    // Theme Selection
+                    // Theme Selection (only free themes in onboarding)
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Theme")
                             .font(.headline)
                             .foregroundColor(themeManager.textColor)
                         
                         HStack(spacing: 12) {
-                            ForEach(AppTheme.allCases) { theme in
+                            ForEach(AppTheme.freeThemes) { theme in
                                 ThemeOptionCard(
                                     theme: theme,
                                     isSelected: themeManager.selectedTheme == theme,
@@ -273,6 +273,13 @@ extension AppTheme {
         case .dark: return Color(.black)
         case .system: return Color(.systemGray5)
         case .sepia: return Color(red: 0.96, green: 0.94, blue: 0.89)
+        case .velvetLight: return AppColors.VelvetLight.background
+        case .velvetDark: return AppColors.VelvetDark.background
+        case .frostedGlassLight: return AppColors.FrostedGlassLight.background
+        case .frostedGlassDark: return AppColors.FrostedGlassDark.background
+        case .auroraLight: return AppColors.AuroraLight.background
+        case .auroraDark: return AppColors.AuroraDark.background
+        case .custom: return Color(.secondarySystemBackground)
         }
     }
     
@@ -282,6 +289,13 @@ extension AppTheme {
         case .dark: return .white
         case .system: return .primary
         case .sepia: return Color(red: 0.4, green: 0.3, blue: 0.2)
+        case .velvetLight: return AppColors.VelvetLight.text
+        case .velvetDark: return AppColors.VelvetDark.text
+        case .frostedGlassLight: return AppColors.FrostedGlassLight.text
+        case .frostedGlassDark: return AppColors.FrostedGlassDark.text
+        case .auroraLight: return AppColors.AuroraLight.text
+        case .auroraDark: return AppColors.AuroraDark.text
+        case .custom: return .primary
         }
     }
 }

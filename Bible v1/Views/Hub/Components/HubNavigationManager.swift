@@ -31,6 +31,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     
     // Routines (unified)
     case dailyRoutine
+    case routineManager
+    case routineAnalytics
     case weeklyRecap
     
     // Other Features
@@ -57,6 +59,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .devotionals: return "Devotionals"
         case .verseOfDay: return "Verse of the Day"
         case .dailyRoutine: return dynamicRoutineTitle
+        case .routineManager: return "My Routines"
+        case .routineAnalytics: return "Routine Analytics"
         case .weeklyRecap: return "Weekly Recap"
         case .fasting: return "Fasting"
         case .missions: return "Missions"
@@ -91,6 +95,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .devotionals: return "sun.max.fill"
         case .verseOfDay: return "sparkles"
         case .dailyRoutine: return dynamicRoutineIcon
+        case .routineManager: return "list.bullet"
+        case .routineAnalytics: return "chart.xyaxis.line"
         case .weeklyRecap: return "chart.bar.fill"
         case .fasting: return "leaf.fill"
         case .missions: return "target"
@@ -125,6 +131,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .devotionals: return .orange
         case .verseOfDay: return .yellow
         case .dailyRoutine: return dynamicRoutineColor
+        case .routineManager: return Color.Journal.warmBrown
+        case .routineAnalytics: return .indigo
         case .weeklyRecap: return ThemeManager.shared.accentColor
         case .fasting: return .mint
         case .missions: return .red
@@ -159,6 +167,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .devotionals: return "Daily inspiration"
         case .verseOfDay: return "Daily scripture"
         case .dailyRoutine: return dynamicRoutineSubtitle
+        case .routineManager: return "Customize & create"
+        case .routineAnalytics: return "Track your progress"
         case .weeklyRecap: return "Your progress"
         case .fasting: return "Spiritual discipline"
         case .missions: return "Acts of faith"

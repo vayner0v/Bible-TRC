@@ -2,539 +2,547 @@
 //  AuthService.swift
 //  Bible v1
 //
-//  Manages user authentication using AWS Amplify Cognito
+//  Authentication service with Apple, Google, and Email/Password support
+//  NOTE: Email/password can be disabled in the future - see REMOVABLE_EMAIL_AUTH markers
 //
 
 import Foundation
-import SwiftUI
+import Supabase
 import Combine
-import Amplify
-import AWSCognitoAuthPlugin
+import AuthenticationServices
+import CryptoKit
 
-// MARK: - Auth State
-
-/// Represents the current authentication state
-enum AuthState: Equatable {
-    case unknown
-    case signedOut
-    case signingIn
-    case signedIn(userId: String)
-    case confirmingSignUp(email: String)
-    case error(String)
+/// Authentication provider type
+enum AuthProvider: String, CaseIterable {
+    case apple = "apple"
+    case google = "google"
+    case email = "email" // REMOVABLE_EMAIL_AUTH: Remove this case when disabling email auth
     
-    static func == (lhs: AuthState, rhs: AuthState) -> Bool {
-        switch (lhs, rhs) {
-        case (.unknown, .unknown), (.signedOut, .signedOut), (.signingIn, .signingIn):
-            return true
-        case let (.signedIn(l), .signedIn(r)):
-            return l == r
-        case let (.confirmingSignUp(l), .confirmingSignUp(r)):
-            return l == r
-        case let (.error(l), .error(r)):
-            return l == r
-        default:
-            return false
+    var displayName: String {
+        switch self {
+        case .apple: return "Apple"
+        case .google: return "Google"
+        case .email: return "Email"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .apple: return "apple.logo"
+        case .google: return "g.circle.fill"
+        case .email: return "envelope.fill"
         }
     }
 }
 
-// MARK: - App Auth Error
+/// User profile data
+struct UserProfile: Codable, Equatable {
+    let id: UUID
+    let email: String
+    var displayName: String?
+    var avatarUrl: String?
+    let createdAt: Date
+    let provider: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case displayName = "display_name"
+        case avatarUrl = "avatar_url"
+        case createdAt = "created_at"
+        case provider
+    }
+    
+    init(id: UUID, email: String, displayName: String? = nil, avatarUrl: String? = nil, createdAt: Date, provider: String? = nil) {
+        self.id = id
+        self.email = email
+        self.displayName = displayName
+        self.avatarUrl = avatarUrl
+        self.createdAt = createdAt
+        self.provider = provider
+    }
+}
 
-/// Authentication errors (named AppAuthError to avoid conflict with Amplify.AuthError)
-enum AppAuthError: LocalizedError {
-    case signUpFailed(String)
-    case signInFailed(String)
-    case confirmationFailed(String)
-    case signOutFailed(String)
-    case sessionExpired
-    case userNotFound
+/// Authentication state
+enum AuthState: Equatable {
+    case loading
+    case localOnly
+    case signedOut
+    case signedIn(UserProfile)
+    
+    var isAuthenticated: Bool {
+        if case .signedIn = self { return true }
+        return false
+    }
+    
+    var isLocalOnly: Bool {
+        if case .localOnly = self { return true }
+        return false
+    }
+    
+    var user: UserProfile? {
+        if case .signedIn(let profile) = self { return profile }
+        return nil
+    }
+}
+
+/// Authentication error types
+enum AuthError: LocalizedError {
+    case invalidEmail
+    case weakPassword
+    case emailAlreadyExists
     case invalidCredentials
     case networkError
+    case notConfigured
+    case appleSignInFailed
+    case googleSignInFailed
+    case cancelled
     case unknown(String)
     
     var errorDescription: String? {
         switch self {
-        case .signUpFailed(let message):
-            return "Sign up failed: \(message)"
-        case .signInFailed(let message):
-            return "Sign in failed: \(message)"
-        case .confirmationFailed(let message):
-            return "Confirmation failed: \(message)"
-        case .signOutFailed(let message):
-            return "Sign out failed: \(message)"
-        case .sessionExpired:
-            return "Your session has expired. Please sign in again."
-        case .userNotFound:
-            return "No account found with this email."
+        case .invalidEmail:
+            return "Please enter a valid email address"
+        case .weakPassword:
+            return "Password must be at least 8 characters with a number and special character"
+        case .emailAlreadyExists:
+            return "An account with this email already exists"
         case .invalidCredentials:
-            return "Invalid email or password."
+            return "Invalid email or password"
         case .networkError:
-            return "Network error. Please check your connection."
+            return "Unable to connect. Please check your internet connection"
+        case .notConfigured:
+            return "Cloud sync is not configured"
+        case .appleSignInFailed:
+            return "Sign in with Apple failed. Please try again"
+        case .googleSignInFailed:
+            return "Sign in with Google failed. Please try again"
+        case .cancelled:
+            return "Sign in was cancelled"
         case .unknown(let message):
             return message
         }
     }
 }
 
-// MARK: - User Model
-
-/// Represents authenticated user data
-struct AuthUser: Identifiable, Equatable {
-    let id: String
-    let email: String
-    var givenName: String?
-    var familyName: String?
-    var provider: AuthProvider
-    
-    var displayName: String {
-        if let given = givenName {
-            if let family = familyName {
-                return "\(given) \(family)"
-            }
-            return given
-        }
-        return email
-    }
-}
-
-/// Authentication provider used
-enum AuthProvider: String, Codable {
-    case email = "email"
-    case apple = "apple"
-    case google = "google"
-    case unknown = "unknown"
-}
-
-// MARK: - Auth Service
-
-/// Manages all authentication operations
+/// Authentication service with Apple, Google, and Email/Password support
 @MainActor
-class AuthService: ObservableObject {
+final class AuthService: ObservableObject {
     static let shared = AuthService()
     
     // MARK: - Published Properties
     
-    @Published private(set) var authState: AuthState = .unknown
-    @Published private(set) var currentUser: AuthUser?
-    @Published private(set) var isLoading: Bool = false
-    @Published var errorMessage: String?
-    
-    /// Quick check if user is authenticated
-    var isAuthenticated: Bool {
-        if case .signedIn = authState {
-            return true
-        }
-        return false
-    }
+    @Published private(set) var authState: AuthState = .loading
+    @Published private(set) var isLoading = false
     
     // MARK: - Private Properties
     
-    private var authListener: AnyCancellable?
-    private var isConfigured = false
+    private var authStateTask: Task<Void, Never>?
+    private var currentNonce: String?
     
     // MARK: - Initialization
     
-    private init() {}
+    private init() {
+        // Check if local-only mode is enabled
+        if SettingsStore.shared.localOnlyMode {
+            authState = .localOnly
+        } else {
+            Task {
+                await checkAuthState()
+                listenToAuthChanges()
+            }
+        }
+    }
     
-    // MARK: - Configuration
+    // MARK: - Local-Only Mode
     
-    /// Configure Amplify with Cognito plugin
-    /// Call this once at app launch
-    func configure() async {
-        guard !isConfigured else { return }
+    /// Enable local-only mode (no cloud sync)
+    func enableLocalOnlyMode() {
+        SettingsStore.shared.localOnlyMode = true
+        authState = .localOnly
+        authStateTask?.cancel()
+    }
+    
+    /// Disable local-only mode and check for existing session
+    func disableLocalOnlyMode() async {
+        SettingsStore.shared.localOnlyMode = false
+        await checkAuthState()
+        listenToAuthChanges()
+    }
+    
+    // MARK: - Sign In with Apple
+    
+    /// Generate a random nonce for Apple Sign In
+    func generateNonce() -> String {
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        return nonce
+    }
+    
+    /// Get SHA256 hash of nonce for Apple Sign In request
+    func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            String(format: "%02x", $0)
+        }.joined()
+        return hashString
+    }
+    
+    /// Sign in with Apple using ID token
+    func signInWithApple(idToken: String, nonce: String) async throws {
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
+        
+        isLoading = true
+        defer { isLoading = false }
         
         do {
-            try Amplify.add(plugin: AWSCognitoAuthPlugin())
-            try Amplify.configure()
-            isConfigured = true
+            let session = try await SupabaseService.shared.client.auth.signInWithIdToken(
+                credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
+            )
             
-            // Listen for auth events
-            setupAuthListener()
+            let profile = createProfile(from: session.user, provider: "apple")
+            authState = .signedIn(profile)
+            SettingsStore.shared.localOnlyMode = false
             
-            // Check current auth session
-            await checkAuthSession()
-            
-            print("✅ Amplify configured successfully")
+            // Cache the auth provider for quick sign-in
+            SettingsStore.shared.lastUsedAuthProvider = "apple"
+            SettingsStore.shared.lastSignedInEmail = profile.email
         } catch {
-            print("❌ Failed to configure Amplify: \(error)")
-            authState = .error("Failed to initialize authentication")
+            throw AuthError.appleSignInFailed
         }
     }
     
-    // MARK: - Auth Session Check
-    
-    /// Check if user is already signed in
-    func checkAuthSession() async {
-        do {
-            let session = try await Amplify.Auth.fetchAuthSession()
-            
-            if session.isSignedIn {
-                // Fetch user attributes
-                await fetchCurrentUser()
-            } else {
-                authState = .signedOut
-                currentUser = nil
+    /// Handle Apple Sign In authorization result
+    func handleAppleSignIn(result: Result<ASAuthorization, Error>) async throws {
+        switch result {
+        case .success(let authorization):
+            guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let identityTokenData = appleIDCredential.identityToken,
+                  let identityToken = String(data: identityTokenData, encoding: .utf8),
+                  let nonce = currentNonce else {
+                throw AuthError.appleSignInFailed
             }
-        } catch {
-            print("Auth session check failed: \(error)")
-            authState = .signedOut
-            currentUser = nil
+            
+            try await signInWithApple(idToken: identityToken, nonce: nonce)
+            
+        case .failure(let error):
+            if (error as NSError).code == ASAuthorizationError.canceled.rawValue {
+                throw AuthError.cancelled
+            }
+            throw AuthError.appleSignInFailed
         }
     }
     
-    // MARK: - Email/Password Sign Up
+    // MARK: - Sign In with Google
+    
+    /// Sign in with Google using ID token and access token
+    func signInWithGoogle(idToken: String, accessToken: String) async throws {
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            let session = try await SupabaseService.shared.client.auth.signInWithIdToken(
+                credentials: .init(provider: .google, idToken: idToken, accessToken: accessToken)
+            )
+            
+            let profile = createProfile(from: session.user, provider: "google")
+            authState = .signedIn(profile)
+            SettingsStore.shared.localOnlyMode = false
+            
+            // Cache the auth provider for quick sign-in
+            SettingsStore.shared.lastUsedAuthProvider = "google"
+            SettingsStore.shared.lastSignedInEmail = profile.email
+        } catch {
+            throw AuthError.googleSignInFailed
+        }
+    }
+    
+    // MARK: - Email/Password Authentication
+    // REMOVABLE_EMAIL_AUTH: START - Remove this entire section when disabling email auth
     
     /// Sign up with email and password
-    func signUp(email: String, password: String, givenName: String? = nil, familyName: String? = nil) async throws {
-        isLoading = true
-        errorMessage = nil
+    func signUp(email: String, password: String, displayName: String? = nil) async throws {
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
         
+        guard isValidEmail(email) else {
+            throw AuthError.invalidEmail
+        }
+        
+        guard isValidPassword(password) else {
+            throw AuthError.weakPassword
+        }
+        
+        isLoading = true
         defer { isLoading = false }
         
-        var userAttributes: [AuthUserAttribute] = [
-            .init(.email, value: email)
-        ]
-        
-        if let givenName = givenName, !givenName.isEmpty {
-            userAttributes.append(.init(.givenName, value: givenName))
-        }
-        
-        if let familyName = familyName, !familyName.isEmpty {
-            userAttributes.append(.init(.familyName, value: familyName))
-        }
-        
-        let options = AuthSignUpRequest.Options(userAttributes: userAttributes)
-        
         do {
-            let result = try await Amplify.Auth.signUp(
-                username: email,
+            let response = try await SupabaseService.shared.client.auth.signUp(
+                email: email,
                 password: password,
-                options: options
+                data: displayName != nil ? ["display_name": .string(displayName!)] : nil
             )
             
-            switch result.nextStep {
-            case .confirmUser:
-                authState = .confirmingSignUp(email: email)
-            case .done:
-                // Auto-confirmed, sign in
-                try await signIn(email: email, password: password)
-            case .completeAutoSignIn:
-                // Auto sign-in after sign up
-                await fetchCurrentUser()
-            }
-        } catch let error as AuthError {
-            let message = parseAmplifyError(error)
-            errorMessage = message
-            throw AppAuthError.signUpFailed(message)
-        } catch {
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.signUpFailed(message)
-        }
-    }
-    
-    // MARK: - Confirm Sign Up
-    
-    /// Confirm sign up with verification code
-    func confirmSignUp(email: String, code: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        
-        defer { isLoading = false }
-        
-        do {
-            let result = try await Amplify.Auth.confirmSignUp(
-                for: email,
-                confirmationCode: code
+            let user = response.user
+            let profile = UserProfile(
+                id: user.id,
+                email: email,
+                displayName: displayName,
+                avatarUrl: nil,
+                createdAt: Date(),
+                provider: "email"
             )
+            authState = .signedIn(profile)
             
-            if result.isSignUpComplete {
-                authState = .signedOut
-            }
-        } catch let error as AuthError {
-            let message = parseAmplifyError(error)
-            errorMessage = message
-            throw AppAuthError.confirmationFailed(message)
+            // Disable local-only mode since user registered
+            SettingsStore.shared.localOnlyMode = false
+            
+            // Cache the auth provider for quick sign-in
+            SettingsStore.shared.lastUsedAuthProvider = "email"
+            SettingsStore.shared.lastSignedInEmail = email
         } catch {
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.confirmationFailed(message)
+            throw mapAuthError(error)
         }
     }
-    
-    // MARK: - Resend Confirmation Code
-    
-    /// Resend confirmation code
-    func resendConfirmationCode(email: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        
-        defer { isLoading = false }
-        
-        do {
-            _ = try await Amplify.Auth.resendSignUpCode(for: email)
-        } catch {
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.unknown(message)
-        }
-    }
-    
-    // MARK: - Email/Password Sign In
     
     /// Sign in with email and password
     func signIn(email: String, password: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        authState = .signingIn
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
         
+        guard isValidEmail(email) else {
+            throw AuthError.invalidEmail
+        }
+        
+        isLoading = true
         defer { isLoading = false }
         
         do {
-            let result = try await Amplify.Auth.signIn(
-                username: email,
+            let session = try await SupabaseService.shared.client.auth.signIn(
+                email: email,
                 password: password
             )
             
-            if result.isSignedIn {
-                await fetchCurrentUser()
-            } else {
-                // Handle additional steps if needed
-                switch result.nextStep {
-                case .confirmSignUp:
-                    authState = .confirmingSignUp(email: email)
-                default:
-                    authState = .signedOut
-                }
-            }
-        } catch let error as AuthError {
-            authState = .signedOut
-            let message = parseAmplifyError(error)
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        } catch {
-            authState = .signedOut
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        }
-    }
-    
-    // MARK: - Social Sign In
-    
-    /// Sign in with Apple
-    func signInWithApple(presentationAnchor: AuthUIPresentationAnchor? = nil) async throws {
-        isLoading = true
-        errorMessage = nil
-        authState = .signingIn
-        
-        defer { isLoading = false }
-        
-        do {
-            let result = try await Amplify.Auth.signInWithWebUI(
-                for: .apple,
-                presentationAnchor: presentationAnchor ?? getWindow()
-            )
-            
-            if result.isSignedIn {
-                await fetchCurrentUser(provider: .apple)
-            } else {
-                authState = .signedOut
-            }
-        } catch let error as AuthError {
-            authState = .signedOut
-            let message = parseAmplifyError(error)
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        } catch {
-            authState = .signedOut
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        }
-    }
-    
-    /// Sign in with Google
-    func signInWithGoogle(presentationAnchor: AuthUIPresentationAnchor? = nil) async throws {
-        isLoading = true
-        errorMessage = nil
-        authState = .signingIn
-        
-        defer { isLoading = false }
-        
-        do {
-            let result = try await Amplify.Auth.signInWithWebUI(
-                for: .google,
-                presentationAnchor: presentationAnchor ?? getWindow()
-            )
-            
-            if result.isSignedIn {
-                await fetchCurrentUser(provider: .google)
-            } else {
-                authState = .signedOut
-            }
-        } catch let error as AuthError {
-            authState = .signedOut
-            let message = parseAmplifyError(error)
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        } catch {
-            authState = .signedOut
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.signInFailed(message)
-        }
-    }
-    
-    // MARK: - Sign Out
-    
-    /// Sign out current user
-    func signOut() async {
-        isLoading = true
-        errorMessage = nil
-        
-        defer { isLoading = false }
-        
-        // Amplify.Auth.signOut() doesn't throw - it always succeeds locally
-        _ = await Amplify.Auth.signOut()
-        authState = .signedOut
-        currentUser = nil
-    }
-    
-    // MARK: - Password Reset
-    
-    /// Request password reset
-    func resetPassword(email: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        
-        defer { isLoading = false }
-        
-        do {
-            _ = try await Amplify.Auth.resetPassword(for: email)
-        } catch {
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.unknown(message)
-        }
-    }
-    
-    /// Confirm password reset with code and new password
-    func confirmResetPassword(email: String, newPassword: String, code: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        
-        defer { isLoading = false }
-        
-        do {
-            try await Amplify.Auth.confirmResetPassword(
-                for: email,
-                with: newPassword,
-                confirmationCode: code
-            )
-        } catch {
-            let message = error.localizedDescription
-            errorMessage = message
-            throw AppAuthError.unknown(message)
-        }
-    }
-    
-    // MARK: - Private Helpers
-    
-    /// Fetch current user attributes
-    private func fetchCurrentUser(provider: AuthProvider = .email) async {
-        do {
-            let attributes = try await Amplify.Auth.fetchUserAttributes()
-            let user = try await Amplify.Auth.getCurrentUser()
-            
-            var email = ""
-            var givenName: String?
-            var familyName: String?
-            
-            for attribute in attributes {
-                switch attribute.key {
-                case .email:
-                    email = attribute.value
-                case .givenName:
-                    givenName = attribute.value
-                case .familyName:
-                    familyName = attribute.value
-                default:
-                    break
-                }
-            }
-            
-            currentUser = AuthUser(
-                id: user.userId,
+            let profile = UserProfile(
+                id: session.user.id,
                 email: email,
-                givenName: givenName,
-                familyName: familyName,
-                provider: provider
+                displayName: session.user.userMetadata["display_name"]?.stringValue,
+                avatarUrl: session.user.userMetadata["avatar_url"]?.stringValue,
+                createdAt: session.user.createdAt,
+                provider: "email"
             )
+            authState = .signedIn(profile)
             
-            authState = .signedIn(userId: user.userId)
+            // Disable local-only mode since user signed in
+            SettingsStore.shared.localOnlyMode = false
             
+            // Cache the auth provider for quick sign-in
+            SettingsStore.shared.lastUsedAuthProvider = "email"
+            SettingsStore.shared.lastSignedInEmail = email
         } catch {
-            print("Failed to fetch user: \(error)")
-            authState = .signedOut
-            currentUser = nil
+            throw mapAuthError(error)
         }
     }
     
-    /// Setup listener for auth events
-    private func setupAuthListener() {
-        authListener = Amplify.Hub.publisher(for: .auth)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] payload in
-                switch payload.eventName {
-                case HubPayload.EventName.Auth.signedIn:
-                    Task { await self?.fetchCurrentUser() }
-                case HubPayload.EventName.Auth.signedOut:
-                    self?.authState = .signedOut
-                    self?.currentUser = nil
-                case HubPayload.EventName.Auth.sessionExpired:
-                    self?.authState = .signedOut
-                    self?.currentUser = nil
+    /// Reset password
+    func resetPassword(email: String) async throws {
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
+        
+        guard isValidEmail(email) else {
+            throw AuthError.invalidEmail
+        }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            try await SupabaseService.shared.client.auth.resetPasswordForEmail(email)
+        } catch {
+            throw mapAuthError(error)
+        }
+    }
+    
+    // REMOVABLE_EMAIL_AUTH: END
+    
+    // MARK: - Common Authentication Methods
+    
+    /// Sign out
+    func signOut() async throws {
+        guard SupabaseService.shared.isConfigured else {
+            authState = .signedOut
+            return
+        }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            try await SupabaseService.shared.client.auth.signOut()
+            authState = .signedOut
+        } catch {
+            throw mapAuthError(error)
+        }
+    }
+    
+    /// Update user profile
+    func updateProfile(displayName: String? = nil, avatarUrl: String? = nil) async throws {
+        guard SupabaseService.shared.isConfigured else {
+            throw AuthError.notConfigured
+        }
+        
+        guard case .signedIn(var profile) = authState else { return }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        var metadata: [String: AnyJSON] = [:]
+        if let displayName = displayName {
+            metadata["display_name"] = .string(displayName)
+            profile.displayName = displayName
+        }
+        if let avatarUrl = avatarUrl {
+            metadata["avatar_url"] = .string(avatarUrl)
+            profile.avatarUrl = avatarUrl
+        }
+        
+        do {
+            try await SupabaseService.shared.client.auth.update(user: UserAttributes(data: metadata))
+            authState = .signedIn(profile)
+        } catch {
+            throw mapAuthError(error)
+        }
+    }
+    
+    // MARK: - Helper: Create Profile from User
+    
+    private func createProfile(from user: User, provider: String) -> UserProfile {
+        UserProfile(
+            id: user.id,
+            email: user.email ?? "",
+            displayName: user.userMetadata["full_name"]?.stringValue ??
+                         user.userMetadata["name"]?.stringValue ??
+                         user.userMetadata["display_name"]?.stringValue,
+            avatarUrl: user.userMetadata["avatar_url"]?.stringValue ??
+                       user.userMetadata["picture"]?.stringValue,
+            createdAt: user.createdAt,
+            provider: provider
+        )
+    }
+    
+    // MARK: - Helper: Random Nonce for Apple Sign In
+    
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        var randomBytes = [UInt8](repeating: 0, count: length)
+        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        if errorCode != errSecSuccess {
+            fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+        }
+        
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        let nonce = randomBytes.map { byte in
+            charset[Int(byte) % charset.count]
+        }
+        return String(nonce)
+    }
+    
+    // MARK: - Private Methods
+    
+    private func checkAuthState() async {
+        guard SupabaseService.shared.isConfigured else {
+            authState = .signedOut
+            return
+        }
+        
+        do {
+            let session = try await SupabaseService.shared.client.auth.session
+            let profile = createProfile(from: session.user, provider: session.user.appMetadata["provider"]?.stringValue ?? "unknown")
+            authState = .signedIn(profile)
+        } catch {
+            authState = .signedOut
+        }
+    }
+    
+    private func listenToAuthChanges() {
+        authStateTask?.cancel()
+        
+        guard SupabaseService.shared.isConfigured else { return }
+        
+        authStateTask = Task {
+            for await (event, session) in SupabaseService.shared.client.auth.authStateChanges {
+                guard !Task.isCancelled else { break }
+                
+                switch event {
+                case .signedIn:
+                    if let user = session?.user {
+                        let profile = createProfile(from: user, provider: user.appMetadata["provider"]?.stringValue ?? "unknown")
+                        authState = .signedIn(profile)
+                    }
+                case .signedOut:
+                    authState = .signedOut
+                case .tokenRefreshed:
+                    // Token refreshed, no action needed
+                    break
                 default:
                     break
                 }
             }
+        }
     }
     
-    /// Parse Amplify error to user-friendly message
-    private func parseAmplifyError(_ error: AuthError) -> String {
-        // AuthError is an enum with associated values
-        // We check the error description for common patterns
-        let description = error.errorDescription
+    // REMOVABLE_EMAIL_AUTH: These validation functions are only needed for email auth
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegex = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        return email.range(of: emailRegex, options: .regularExpression) != nil
+    }
+    
+    private func isValidPassword(_ password: String) -> Bool {
+        // At least 8 characters, 1 number, 1 special character
+        guard password.count >= 8 else { return false }
+        let hasNumber = password.range(of: #"\d"#, options: .regularExpression) != nil
+        let hasSpecial = password.range(of: #"[!@#$%^&*(),.?\":{}|<>]"#, options: .regularExpression) != nil
+        return hasNumber && hasSpecial
+    }
+    // REMOVABLE_EMAIL_AUTH: END validation functions
+    
+    private func mapAuthError(_ error: Error) -> AuthError {
+        let errorMessage = error.localizedDescription.lowercased()
         
-        if description.contains("Incorrect username or password") ||
-           description.contains("not authorized") {
-            return "Invalid email or password."
-        } else if description.contains("User does not exist") ||
-                  description.contains("user not found") {
-            return "No account found with this email."
-        } else if description.contains("User already exists") {
-            return "An account with this email already exists."
-        } else if description.contains("Invalid verification code") {
-            return "Invalid verification code. Please try again."
-        } else if description.contains("Password") {
-            return description
+        if errorMessage.contains("invalid login") || errorMessage.contains("invalid email or password") {
+            return .invalidCredentials
+        } else if errorMessage.contains("already registered") || errorMessage.contains("already exists") {
+            return .emailAlreadyExists
+        } else if errorMessage.contains("network") || errorMessage.contains("connection") {
+            return .networkError
+        } else if errorMessage.contains("cancel") {
+            return .cancelled
         } else {
-            return description
+            return .unknown(error.localizedDescription)
         }
-    }
-    
-    /// Get the key window for presentation
-    private func getWindow() -> AuthUIPresentationAnchor {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = scene.windows.first else {
-            fatalError("No window found")
-        }
-        return window
     }
 }
 
-// MARK: - Type Alias for Window
+// MARK: - SettingsStore Extension for Local-Only Mode
 
-typealias AuthUIPresentationAnchor = UIWindow
+extension SettingsStore {
+    /// Local-only mode - when enabled, no cloud sync
+    var localOnlyMode: Bool {
+        get { UserDefaults.standard.bool(forKey: "auth_local_only_mode") }
+        set { 
+            objectWillChange.send()
+            UserDefaults.standard.set(newValue, forKey: "auth_local_only_mode")
+        }
+    }
+}
 

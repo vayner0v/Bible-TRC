@@ -16,6 +16,7 @@ enum VerseAction {
     case addNote
     case copy
     case share
+    case trcInsight(InsightAnalysisType)
 }
 
 // MARK: - Themed Toolbar Button

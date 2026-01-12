@@ -319,11 +319,15 @@ struct RichTextEditorRepresentable: UIViewRepresentable {
         }
         
         func textViewDidChangeSelection(_ textView: UITextView) {
-            parent.selectedRange = textView.selectedRange
-            
-            // Update formatting state based on selection
-            if textView.selectedRange.length > 0 {
-                updateFormattingState(from: textView)
+            // Defer state update to avoid modifying state during view update
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.parent.selectedRange = textView.selectedRange
+                
+                // Update formatting state based on selection
+                if textView.selectedRange.length > 0 {
+                    self.updateFormattingState(from: textView)
+                }
             }
         }
         
@@ -542,4 +546,6 @@ struct FormattedTextView: View {
         """)
     .padding()
 }
+
+
 

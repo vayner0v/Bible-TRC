@@ -13,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject var bibleViewModel: BibleViewModel
     @ObservedObject private var themeManager = ThemeManager.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var authService = AuthService.shared
     @StateObject private var searchIndex = SettingsSearchIndex.shared
     @StateObject private var exportService = DataExportService.shared
     
@@ -53,6 +54,9 @@ struct SettingsView: View {
     
     private var normalSettingsContent: some View {
         VStack(spacing: 24) {
+            // Profile/Account Section (at the very top)
+            profileSection
+            
             // Quick Settings (always visible at top)
             QuickSettingsSection()
             
@@ -64,6 +68,9 @@ struct SettingsView: View {
             
             // Spiritual Hub Section
             hubSettingsSection
+            
+            // Dynamic Island Section
+            dynamicIslandSection
             
             // Collapsible: Your Data
             CollapsibleSection(title: "Your Data", isExpanded: $settings.dataExpanded) {
@@ -130,6 +137,30 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - Profile Section
+    
+    @ViewBuilder
+    private var profileSection: some View {
+        if authService.authState.isAuthenticated {
+            // Show profile card when signed in
+            ProfileSettingsCard()
+        } else if !authService.authState.isLocalOnly {
+            // Show sign in prompt when signed out (but not in local-only mode)
+            SignInPromptCard()
+        } else {
+            // In local-only mode, show option to enable sync
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ACCOUNT")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(themeManager.secondaryTextColor)
+                    .padding(.horizontal, 4)
+                
+                SignInPromptCard()
+            }
+        }
+    }
+    
     // MARK: - Subscription Section
     
     private var subscriptionSection: some View {
@@ -153,7 +184,8 @@ struct SettingsView: View {
                                 .font(.headline)
                                 .foregroundColor(themeManager.textColor)
                             
-                            if PromoCodeService.shared.isPromoActivated {
+                            // Only show Dev badge when promo is active AND not in customer simulation mode
+                            if PromoCodeService.shared.isPromoActivated && !PromoCodeService.shared.isCustomerSimulationMode {
                                 Text("Dev")
                                     .font(.caption2)
                                     .fontWeight(.bold)
@@ -171,7 +203,8 @@ struct SettingsView: View {
                             }
                         }
                         
-                        Text(PromoCodeService.shared.isPromoActivated ? "Developer Access Active" : 
+                        // Show appropriate subtitle based on simulation mode
+                        Text(PromoCodeService.shared.isPromoActivated && !PromoCodeService.shared.isCustomerSimulationMode ? "Developer Access Active" : 
                              (SubscriptionManager.shared.isPremium ? "AI voices enabled" : "Unlock AI voices"))
                             .font(.caption)
                             .foregroundColor(themeManager.secondaryTextColor)
@@ -247,6 +280,32 @@ struct SettingsView: View {
                 .padding(.horizontal, 4)
             
             VStack(spacing: 0) {
+                // TRC AI Settings
+                NavigationLink {
+                    AIPreferencesView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(themeManager.accentColor)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("TRC AI")
+                                .foregroundColor(themeManager.textColor)
+                            Text("Persona, memory, custom instructions")
+                                .font(.caption)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                    }
+                }
+                
+                Divider()
+                    .background(themeManager.dividerColor)
+                    .padding(.vertical, 12)
+                
                 // Notifications
                 NavigationLink {
                     NotificationPreferencesView()
@@ -300,6 +359,59 @@ struct SettingsView: View {
                         Text("Accessibility")
                             .foregroundColor(themeManager.textColor)
                         Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                    }
+                }
+            }
+            .padding()
+            .background(themeManager.cardBackgroundColor)
+            .cornerRadius(14)
+        }
+    }
+    
+    // MARK: - Dynamic Island Section
+    
+    private var dynamicIslandSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DYNAMIC ISLAND")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(themeManager.secondaryTextColor)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 0) {
+                NavigationLink {
+                    DynamicIslandSettingsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.cyan, Color.blue],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 28, height: 28)
+                            
+                            Image(systemName: "iphone.gen3")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Dynamic Island")
+                                .foregroundColor(themeManager.textColor)
+                            Text("Themes, controls, and customization")
+                                .font(.caption)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                        
+                        Spacer()
+                        
                         Image(systemName: "chevron.right")
                             .font(.caption)
                             .foregroundColor(themeManager.secondaryTextColor)
@@ -451,10 +563,55 @@ struct SettingsView: View {
     @State private var promoCodeInput: String = ""
     @State private var promoCodeError: Bool = false
     @State private var promoCodeSuccess: Bool = false
+    @State private var showCustomerSimVerification: Bool = false
+    @State private var customerSimCodeInput: String = ""
+    @State private var customerSimCodeError: Bool = false
     
     private var developerSection: some View {
         VStack(spacing: 16) {
-            if PromoCodeService.shared.isPromoActivated {
+            if PromoCodeService.shared.isCustomerSimulationMode {
+                // Customer Simulation Mode Active
+                HStack(spacing: 12) {
+                    Image(systemName: "person.fill")
+                        .foregroundColor(.blue)
+                        .font(.title2)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Customer Mode Active")
+                            .font(.headline)
+                            .foregroundColor(themeManager.textColor)
+                        
+                        Text("Simulating as regular customer")
+                            .font(.caption)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                    }
+                    
+                    Spacer()
+                }
+                
+                Button {
+                    PromoCodeService.shared.exitCustomerSimulationMode()
+                    HapticManager.shared.success()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .foregroundColor(.green)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Return to Developer Mode")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(themeManager.textColor)
+                            
+                            Text("Restore developer privileges")
+                                .font(.caption)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                        
+                        Spacer()
+                    }
+                }
+            } else if PromoCodeService.shared.isPromoActivated {
                 HStack(spacing: 12) {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundColor(.green)
@@ -471,6 +628,57 @@ struct SettingsView: View {
                     }
                     
                     Spacer()
+                }
+                
+                // Simulate as Customer Button
+                Button {
+                    customerSimCodeInput = ""
+                    customerSimCodeError = false
+                    showCustomerSimVerification = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundColor(.blue)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Simulate as Customer")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(themeManager.textColor)
+                            
+                            Text("Test app without developer privileges")
+                                .font(.caption)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                        
+                        Spacer()
+                    }
+                }
+                .alert("Verify Developer Access", isPresented: $showCustomerSimVerification) {
+                    SecureField("Enter verification code", text: $customerSimCodeInput)
+                    Button("Cancel", role: .cancel) {
+                        customerSimCodeInput = ""
+                        customerSimCodeError = false
+                    }
+                    Button("Confirm") {
+                        if PromoCodeService.shared.enterCustomerSimulationMode(code: customerSimCodeInput) {
+                            HapticManager.shared.success()
+                            customerSimCodeError = false
+                        } else {
+                            customerSimCodeError = true
+                            HapticManager.shared.error()
+                            // Show error and reopen dialog
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                showCustomerSimVerification = true
+                            }
+                        }
+                    }
+                } message: {
+                    if customerSimCodeError {
+                        Text("Invalid verification code. Please try again.")
+                    } else {
+                        Text("Enter your verification code to enter customer simulation mode.")
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 12) {

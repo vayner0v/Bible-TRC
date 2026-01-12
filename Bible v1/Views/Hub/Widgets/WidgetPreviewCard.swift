@@ -591,6 +591,293 @@ struct PatternView: View {
     }
 }
 
+// MARK: - Project Preview Card (Layer-based)
+
+/// Preview card for layer-based WidgetProject
+struct ProjectPreviewCard: View {
+    let project: WidgetProject
+    var scale: CGFloat = 1.0
+    
+    var body: some View {
+        let size = project.size.previewSize
+        let scaledSize = CGSize(width: size.width * scale, height: size.height * scale)
+        
+        ZStack {
+            // Background
+            projectBackground
+            
+            // Layers
+            ForEach(project.sortedLayers) { layer in
+                if layer.isVisible {
+                    ProjectLayerView(
+                        layer: layer,
+                        containerSize: scaledSize
+                    )
+                }
+            }
+        }
+        .frame(width: scaledSize.width, height: scaledSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 20 * scale))
+        .shadow(color: Color.black.opacity(0.15), radius: 10, y: 5)
+    }
+    
+    @ViewBuilder
+    private var projectBackground: some View {
+        let size = project.size.previewSize
+        
+        switch project.background {
+        case .solid(let fill):
+            fill.color.color.opacity(fill.opacity)
+            
+        case .gradient(let fill):
+            gradientView(for: fill)
+            
+        case .image(let fill):
+            EnhancedImageBackgroundView(
+                config: EnhancedImageBackground(
+                    imageId: fill.imageId,
+                    contentMode: WidgetImageContentMode(rawValue: fill.contentMode.rawValue) ?? .fill,
+                    blurRadius: fill.blurRadius,
+                    overlayColor: fill.overlayColor,
+                    overlayOpacity: fill.overlayOpacity,
+                    brightness: fill.brightness,
+                    saturation: fill.saturation
+                ),
+                size: size
+            )
+            
+        case .glassmorphism(let fill):
+            GlassmorphismBackgroundView(
+                config: EnhancedGlassmorphismBackground(
+                    preset: WidgetGlassmorphismPreset(rawValue: fill.preset.rawValue) ?? .lightGlass,
+                    blurRadius: fill.blurRadius,
+                    tintColor: fill.tintColor,
+                    tintOpacity: fill.tintOpacity,
+                    noiseOpacity: fill.noiseOpacity
+                )
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private func gradientView(for fill: GradientFill) -> some View {
+        let gradient = Gradient(stops: fill.stops.map { 
+            Gradient.Stop(color: $0.color.color, location: $0.location) 
+        })
+        
+        switch fill.type {
+        case .linear:
+            LinearGradient(
+                gradient: gradient,
+                startPoint: fill.startPoint.unitPoint,
+                endPoint: fill.endPoint.unitPoint
+            )
+        case .radial:
+            RadialGradient(
+                gradient: gradient,
+                center: .center,
+                startRadius: 0,
+                endRadius: 300
+            )
+        case .angular:
+            AngularGradient(
+                gradient: gradient,
+                center: .center,
+                angle: .degrees(fill.angle)
+            )
+        }
+    }
+}
+
+/// Individual layer rendering for project preview
+struct ProjectLayerView: View {
+    let layer: WidgetLayer
+    let containerSize: CGSize
+    
+    var body: some View {
+        let frame = layer.frame
+        let x = containerSize.width * frame.x / 100
+        let y = containerSize.height * frame.y / 100
+        let width = containerSize.width * frame.width / 100
+        let height = containerSize.height * frame.height / 100
+        
+        layerContent
+            .frame(width: width, height: height)
+            .position(x: x + width / 2, y: y + height / 2)
+            .opacity(layer.opacity)
+            .rotationEffect(.degrees(frame.rotation))
+            .blendMode(layer.blendMode.swiftUIBlendMode)
+    }
+    
+    @ViewBuilder
+    private var layerContent: some View {
+        switch layer.element {
+        case .text(let config):
+            textElement(config)
+            
+        case .icon(let config):
+            iconElement(config)
+            
+        case .shape(let config):
+            shapeElement(config)
+            
+        case .image(let config):
+            imageElement(config)
+            
+        case .dataBinding(let config):
+            dataBindingElement(config)
+        }
+    }
+    
+    private func textElement(_ config: TextElementConfig) -> some View {
+        Text(config.text)
+            .font(fontForConfig(config))
+            .foregroundColor(config.textColor.color)
+            .multilineTextAlignment(config.alignment.alignment)
+            .lineLimit(config.maxLines == 0 ? nil : config.maxLines)
+    }
+    
+    private func iconElement(_ config: IconElementConfig) -> some View {
+        Image(systemName: config.symbolName)
+            .font(.system(size: config.size, weight: config.weight.fontWeight))
+            .foregroundColor(config.primaryColor.color)
+    }
+    
+    @ViewBuilder
+    private func shapeElement(_ config: ShapeElementConfig) -> some View {
+        switch config.type {
+        case .rectangle:
+            shapeWithFill(Rectangle(), config: config)
+        case .circle:
+            shapeWithFill(Circle(), config: config)
+        case .ellipse:
+            shapeWithFill(Ellipse(), config: config)
+        case .roundedRectangle:
+            shapeWithFill(RoundedRectangle(cornerRadius: config.cornerRadius.topLeading), config: config)
+        case .capsule:
+            shapeWithFill(Capsule(), config: config)
+        default:
+            Rectangle().fill(Color.gray)
+        }
+    }
+    
+    @ViewBuilder
+    private func shapeWithFill<S: Shape>(_ shape: S, config: ShapeElementConfig) -> some View {
+        switch config.fill {
+        case .none:
+            shape.stroke(Color.clear)
+        case .solid(let color):
+            shape.fill(color.color)
+        case .gradient(let gradient):
+            shape.fill(
+                LinearGradient(
+                    gradient: Gradient(stops: gradient.gradientStops),
+                    startPoint: gradient.startPoint.unitPoint,
+                    endPoint: gradient.endPoint.unitPoint
+                )
+            )
+        }
+    }
+    
+    private func imageElement(_ config: ImageElementConfig) -> some View {
+        AsyncImage(url: WidgetPhotoService.shared.getImageURL(for: config.imageId)) { image in
+            image
+                .resizable()
+                .aspectRatio(contentMode: config.contentMode == .fill ? .fill : .fit)
+        } placeholder: {
+            Color.gray.opacity(0.3)
+        }
+        .cornerRadius(config.cornerRadius)
+        .opacity(config.opacity)
+        .blur(radius: config.blurRadius)
+    }
+    
+    private func dataBindingElement(_ config: DataBindingConfig) -> some View {
+        Text(placeholderForDataType(config.dataType))
+            .font(fontForConfig(config.textStyle))
+            .foregroundColor(config.textStyle.textColor.color)
+            .multilineTextAlignment(config.textStyle.alignment.alignment)
+    }
+    
+    private func fontForConfig(_ config: TextElementConfig) -> Font {
+        if let widgetFont = WidgetFontRegistry.shared.font(withId: config.fontId) {
+            return widgetFont.font(size: config.fontSize, weight: config.fontWeight.fontWeight)
+        }
+        return .system(size: config.fontSize, weight: config.fontWeight.fontWeight)
+    }
+    
+    private func placeholderForDataType(_ type: WidgetDataType) -> String {
+        switch type {
+        case .verseText:
+            return "\"For God so loved the world that he gave his one and only Son...\""
+        case .verseReference:
+            return "John 3:16"
+        case .readingProgress:
+            return "45%"
+        case .readingStreak:
+            return "7 days"
+        case .currentDate:
+            return DateFormatter.localizedString(from: Date(), dateStyle: .long, timeStyle: .none)
+        case .currentTime:
+            return DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        case .dayOfWeek:
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: Date())
+        case .habitProgress:
+            return "3/5"
+        case .activePrayerCount:
+            return "5"
+        case .answeredPrayerCount:
+            return "12"
+        case .daysRemaining:
+            return "14"
+        default:
+            return type.displayName
+        }
+    }
+}
+
+// MARK: - Template Thumbnail
+
+/// Thumbnail preview for template gallery
+struct TemplateThumbnail: View {
+    let template: WidgetTemplate
+    var size: CGSize = CGSize(width: 120, height: 80)
+    
+    var body: some View {
+        ZStack {
+            // Background gradient
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    LinearGradient(
+                        colors: template.previewColors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            
+            // Placeholder content
+            VStack(spacing: 4) {
+                Image(systemName: "textformat")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.6))
+                
+                Rectangle()
+                    .fill(Color.white.opacity(0.3))
+                    .frame(width: size.width * 0.6, height: 3)
+                    .cornerRadius(1.5)
+                
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: size.width * 0.4, height: 2)
+                    .cornerRadius(1)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+}
+
 #Preview {
     VStack(spacing: 20) {
         WidgetPreviewCard(
@@ -626,6 +913,28 @@ struct PatternView: View {
                 size: .small,
                 background: .solid(color: CodableColor(color: .white))
             )
+        )
+        
+        ProjectPreviewCard(
+            project: WidgetProject(
+                name: "Test",
+                widgetType: .verseOfDay,
+                size: .medium,
+                layers: [
+                    WidgetLayer(
+                        name: "Text",
+                        element: .text(TextElementConfig(text: "Hello World")),
+                        frame: LayerFrame(x: 10, y: 40, width: 80, height: 20, rotation: 0)
+                    )
+                ],
+                background: .gradient(GradientFill(
+                    stops: [
+                        GradientStop(color: CodableColor(color: .blue), location: 0),
+                        GradientStop(color: CodableColor(color: .purple), location: 1)
+                    ]
+                ))
+            ),
+            scale: 0.6
         )
     }
     .padding()

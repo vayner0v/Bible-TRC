@@ -89,7 +89,8 @@ class BibleAPIService: ObservableObject {
             return cached
         }
         
-        let url = "\(baseURL)/\(translationId)/books.json"
+        let apiTranslationId = convertToAPIFormat(translationId)
+        let url = "\(baseURL)/\(apiTranslationId)/books.json"
         let data = try await fetchData(from: url)
         
         // The API returns an object with "books" array
@@ -108,6 +109,7 @@ class BibleAPIService: ObservableObject {
     
     /// Fetch a specific chapter
     func fetchChapter(translationId: String, bookId: String, chapter: Int) async throws -> Chapter {
+        let apiTranslationId = convertToAPIFormat(translationId)
         let cacheKey = "\(translationId)_\(bookId)_\(chapter)"
         
         // Return cached if available
@@ -115,12 +117,44 @@ class BibleAPIService: ObservableObject {
             return cached
         }
         
-        let url = "\(baseURL)/\(translationId)/\(bookId)/\(chapter).json"
+        let url = "\(baseURL)/\(apiTranslationId)/\(bookId)/\(chapter).json"
         let data = try await fetchData(from: url)
         
         let chapterData = try JSONDecoder().decode(Chapter.self, from: data)
         chaptersCache[cacheKey] = chapterData
         return chapterData
+    }
+    
+    /// Convert app translation ID format (engKJV) to API format (eng_kjv)
+    private func convertToAPIFormat(_ translationId: String) -> String {
+        // If already in API format (contains underscore), return as-is
+        if translationId.contains("_") {
+            return translationId.lowercased()
+        }
+        
+        // Convert camelCase to snake_case
+        // "engKJV" -> "eng_kjv", "engNIV" -> "eng_niv"
+        var result = ""
+        var previousWasUppercase = false
+        
+        for (index, char) in translationId.enumerated() {
+            if char.isUppercase {
+                // Add underscore before uppercase if:
+                // - Not at start
+                // - Previous wasn't uppercase (handles "KJV" -> "kjv" not "k_j_v")
+                // - Or this is start of new word after lowercase
+                if index > 0 && !previousWasUppercase {
+                    result += "_"
+                }
+                result += char.lowercased()
+                previousWasUppercase = true
+            } else {
+                result += String(char)
+                previousWasUppercase = false
+            }
+        }
+        
+        return result
     }
     
     // MARK: - Commentaries (Phase 3)
@@ -161,6 +195,7 @@ class BibleAPIService: ObservableObject {
     
     private func fetchData(from urlString: String) async throws -> Data {
         guard let url = URL(string: urlString) else {
+            print("DEBUG BibleAPI: Invalid URL: \(urlString)")
             throw BibleError.invalidURL
         }
         
@@ -168,11 +203,30 @@ class BibleAPIService: ObservableObject {
             let (data, response) = try await session.data(from: url)
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                print("DEBUG BibleAPI: No HTTP response for: \(urlString)")
                 throw BibleError.noData
             }
             
+            // Log response status
+            print("DEBUG BibleAPI: \(urlString) -> status \(httpResponse.statusCode)")
+            
             guard (200...299).contains(httpResponse.statusCode) else {
+                // Log the error response body
+                let responseBody = String(data: data, encoding: .utf8) ?? "nil"
+                print("DEBUG BibleAPI: Error response body (first 500 chars): \(responseBody.prefix(500))")
                 throw BibleError.serverError(httpResponse.statusCode)
+            }
+            
+            // Verify we got JSON, not HTML
+            if let responseString = String(data: data, encoding: .utf8),
+               responseString.trimmingCharacters(in: .whitespaces).hasPrefix("<") {
+                print("DEBUG BibleAPI: Received HTML instead of JSON from: \(urlString)")
+                print("DEBUG BibleAPI: Response preview: \(responseString.prefix(200))")
+                throw BibleError.decodingError(NSError(
+                    domain: "BibleAPIService",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Server returned HTML instead of JSON"]
+                ))
             }
             
             return data
@@ -182,6 +236,7 @@ class BibleAPIService: ObservableObject {
             if (error as NSError).code == NSURLErrorNotConnectedToInternet {
                 throw BibleError.offline
             }
+            print("DEBUG BibleAPI: Network error for \(urlString): \(error)")
             throw BibleError.networkError(error)
         }
     }

@@ -25,6 +25,7 @@ final class PromoCodeService: ObservableObject {
     @Published private(set) var isPromoActivated: Bool = false
     @Published private(set) var activatedCode: String?
     @Published var showPromoInput: Bool = false
+    @Published private(set) var isCustomerSimulationMode: Bool = false
     
     // MARK: - Private Properties
     
@@ -90,6 +91,58 @@ final class PromoCodeService: ObservableObject {
         return validPromoCodes.contains(normalizedCode)
     }
     
+    // MARK: - Customer Simulation Mode
+    
+    /// Enter customer simulation mode (temporarily disables developer privileges)
+    /// - Parameter code: The verification code to validate
+    /// - Returns: Whether the code was valid and simulation mode was entered
+    @discardableResult
+    func enterCustomerSimulationMode(code: String) -> Bool {
+        // Load verification code from Secrets.plist
+        guard let simCode = loadCustomerSimCode(),
+              code == simCode else {
+            return false
+        }
+        
+        isCustomerSimulationMode = true
+        
+        // Temporarily update subscription status to reflect non-premium
+        SubscriptionManager.shared.deactivatePromoAccess()
+        AudioService.shared.updateSubscriptionStatus(isPremium: false)
+        
+        return true
+    }
+    
+    /// Exit customer simulation mode and restore developer access
+    func exitCustomerSimulationMode() {
+        isCustomerSimulationMode = false
+        
+        // Restore developer access
+        if isPromoActivated {
+            SubscriptionManager.shared.activatePromoAccess()
+            AudioService.shared.updateSubscriptionStatus(isPremium: true)
+        }
+    }
+    
+    /// Load customer simulation code from Secrets.plist
+    private func loadCustomerSimCode() -> String? {
+        guard let path = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
+              let dict = NSDictionary(contentsOfFile: path) as? [String: Any],
+              let code = dict["CUSTOMER_SIM_CODE"] as? String,
+              !code.contains("your-") else {
+            return nil
+        }
+        return code
+    }
+    
+    /// Effective premium status (false when in simulation mode)
+    var effectiveIsPremium: Bool {
+        if isCustomerSimulationMode {
+            return false
+        }
+        return isPromoActivated
+    }
+    
     // MARK: - Status Loading
     
     private func loadPromoStatus() {
@@ -97,9 +150,12 @@ final class PromoCodeService: ObservableObject {
         activatedCode = UserDefaults.standard.string(forKey: Keys.activatedCode)
         
         // If promo is activated, ensure subscription status reflects it
+        // Use DispatchQueue.main.async to avoid modifying @Published properties during view updates
         if isPromoActivated {
-            SubscriptionManager.shared.activatePromoAccess()
-            AudioService.shared.updateSubscriptionStatus(isPremium: true)
+            DispatchQueue.main.async {
+                SubscriptionManager.shared.activatePromoAccess()
+                AudioService.shared.updateSubscriptionStatus(isPremium: true)
+            }
         }
     }
     
@@ -118,4 +174,6 @@ final class PromoCodeService: ObservableObject {
         return "No promo code active"
     }
 }
+
+
 

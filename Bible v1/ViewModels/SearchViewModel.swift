@@ -162,7 +162,8 @@ class SearchViewModel: ObservableObject {
         
         let lowercasedKeyword = keyword.lowercased()
         var results: [SearchResult] = []
-        let maxResults = 50
+        // Increased limit to show all meaningful results
+        let maxResults = 500
         
         // Determine which books to search
         let booksToSearch: [Book]
@@ -175,7 +176,7 @@ class SearchViewModel: ObservableObject {
             booksToSearch = bibleVM.newTestamentBooks
         }
         
-        // Search through cached chapters first
+        // Search through cached chapters
         for book in booksToSearch {
             guard results.count < maxResults else { break }
             

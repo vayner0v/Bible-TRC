@@ -11,6 +11,7 @@ import SwiftUI
 @main
 struct Bible_v1_WidgetsBundle: WidgetBundle {
     var body: some Widget {
+        // Home Screen Widgets
         VerseOfDayWidget()
         ReadingProgressWidget()
         PrayerReminderWidget()
@@ -19,6 +20,13 @@ struct Bible_v1_WidgetsBundle: WidgetBundle {
         CountdownWidget()
         MoodGratitudeWidget()
         FavoritesWidget()
+        
+        // Live Activities (Dynamic Island)
+        AIGenerationLiveActivity()
+        BibleAudioLiveActivity()
     }
 }
+
+
+
 

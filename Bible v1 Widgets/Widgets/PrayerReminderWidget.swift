@@ -12,58 +12,52 @@ struct PrayerReminderWidget: Widget {
     let kind: String = "PrayerReminderWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: PrayerReminderProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: PrayerReminderIntent.self,
+            provider: PrayerReminderIntentProvider()
+        ) { entry in
             PrayerReminderWidgetView(entry: entry)
         }
         .configurationDisplayName("Prayer Reminder")
         .description("Quick access to your prayers")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-    }
-}
-
-struct PrayerReminderProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Update every 30 minutes
-        let nextUpdate = Date().addingTimeInterval(1800)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct PrayerReminderWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: PrayerReminderEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemSmall:
+                smallView
+            case .systemMedium:
+                mediumView
+            case .systemLarge:
+                largeView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://prayer"))
     }
     
     // MARK: - Small View
@@ -83,38 +77,47 @@ struct PrayerReminderWidgetView: View {
             
             Spacer()
             
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("\(entry.data.activePrayerCount)")
-                            .font(.title2.bold())
-                            .foregroundColor(theme.textColor)
-                        Text("Active")
-                            .font(.caption2)
-                            .foregroundColor(theme.secondaryTextColor)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .trailing) {
-                        Text("\(entry.data.answeredPrayerCount)")
-                            .font(.title2.bold())
-                            .foregroundColor(.green)
-                        Text("Answered")
-                            .font(.caption2)
-                            .foregroundColor(theme.secondaryTextColor)
+            if entry.configuration.showPrayerCount {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("\(entry.data.activePrayerCount)")
+                                .font(.title2.bold())
+                                .foregroundColor(styleConfig.textColor)
+                            Text("Active")
+                                .font(.caption2)
+                                .foregroundColor(styleConfig.secondaryTextColor)
+                        }
+                        
+                        Spacer()
+                        
+                        VStack(alignment: .trailing) {
+                            Text("\(entry.data.answeredPrayerCount)")
+                                .font(.title2.bold())
+                                .foregroundColor(.green)
+                            Text("Answered")
+                                .font(.caption2)
+                                .foregroundColor(styleConfig.secondaryTextColor)
+                        }
                     }
                 }
+            } else {
+                Image(systemName: "hands.sparkles.fill")
+                    .font(.largeTitle)
+                    .foregroundColor(.teal)
+                    .frame(maxWidth: .infinity)
             }
             
             Spacer()
             
             Text("Tap to pray")
                 .font(.caption2)
-                .foregroundColor(theme.secondaryTextColor)
+                .foregroundColor(styleConfig.secondaryTextColor)
         }
         .padding(12)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Medium View
@@ -135,41 +138,45 @@ struct PrayerReminderWidgetView: View {
                     
                     Text("Prayer")
                         .font(.headline)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                 }
                 
                 Spacer()
                 
                 Text("Your prayers matter")
                     .font(.caption)
-                    .foregroundColor(theme.secondaryTextColor)
+                    .foregroundColor(styleConfig.secondaryTextColor)
             }
             
             Spacer()
             
             // Right side - stats
-            HStack(spacing: 20) {
-                VStack(spacing: 4) {
-                    Text("\(entry.data.activePrayerCount)")
-                        .font(.title.bold())
-                        .foregroundColor(theme.textColor)
-                    Text("Active")
-                        .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
-                }
-                
-                VStack(spacing: 4) {
-                    Text("\(entry.data.answeredPrayerCount)")
-                        .font(.title.bold())
-                        .foregroundColor(.green)
-                    Text("Answered")
-                        .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+            if entry.configuration.showPrayerCount {
+                HStack(spacing: 20) {
+                    VStack(spacing: 4) {
+                        Text("\(entry.data.activePrayerCount)")
+                            .font(.title.bold())
+                            .foregroundColor(styleConfig.textColor)
+                        Text("Active")
+                            .font(.caption)
+                            .foregroundColor(styleConfig.secondaryTextColor)
+                    }
+                    
+                    VStack(spacing: 4) {
+                        Text("\(entry.data.answeredPrayerCount)")
+                            .font(.title.bold())
+                            .foregroundColor(.green)
+                        Text("Answered")
+                            .font(.caption)
+                            .foregroundColor(styleConfig.secondaryTextColor)
+                    }
                 }
             }
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Large View
@@ -191,18 +198,18 @@ struct PrayerReminderWidgetView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Prayer Journal")
                         .font(.headline)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                     
                     Text("Keep your prayers close")
                         .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 Spacer()
             }
             
             Divider()
-                .background(theme.secondaryTextColor.opacity(0.3))
+                .background(styleConfig.secondaryTextColor.opacity(0.3))
             
             // Stats cards
             HStack(spacing: 12) {
@@ -211,7 +218,7 @@ struct PrayerReminderWidgetView: View {
                     value: "\(entry.data.activePrayerCount)",
                     icon: "heart.fill",
                     color: .teal,
-                    theme: theme
+                    styleConfig: styleConfig
                 )
                 
                 PrayerStatCard(
@@ -219,7 +226,7 @@ struct PrayerReminderWidgetView: View {
                     value: "\(entry.data.answeredPrayerCount)",
                     icon: "checkmark.circle.fill",
                     color: .green,
-                    theme: theme
+                    styleConfig: styleConfig
                 )
             }
             
@@ -229,17 +236,17 @@ struct PrayerReminderWidgetView: View {
             VStack(spacing: 8) {
                 Image(systemName: "quote.opening")
                     .font(.caption)
-                    .foregroundColor(theme.accentColor.opacity(0.5))
+                    .foregroundColor(styleConfig.accentColor.opacity(0.5))
                 
                 Text("\"Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.\"")
                     .font(.system(size: 12, design: .serif))
-                    .foregroundColor(theme.textColor)
+                    .foregroundColor(styleConfig.textColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                 
                 Text("— Philippians 4:6")
                     .font(.caption2)
-                    .foregroundColor(theme.secondaryTextColor)
+                    .foregroundColor(styleConfig.secondaryTextColor)
             }
             .padding(.horizontal)
             
@@ -263,7 +270,66 @@ struct PrayerReminderWidgetView: View {
             .cornerRadius(10)
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            VStack(spacing: 0) {
+                Image(systemName: "hands.sparkles.fill")
+                    .font(.title3)
+                Text("\(entry.data.activePrayerCount)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+            }
+        }
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "hands.sparkles")
+                    .font(.system(size: 14, weight: .bold))
+                Text("Prayer Requests")
+                    .font(.system(size: 15, weight: .bold))
+            }
+            .widgetAccentable()
+            
+            HStack(spacing: 0) {
+                HStack(spacing: 4) {
+                    Text("\(entry.data.activePrayerCount)")
+                        .font(.system(size: 22, weight: .bold))
+                    Text("active")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 4) {
+                    Text("\(entry.data.answeredPrayerCount)")
+                        .font(.system(size: 22, weight: .bold))
+                    Text("answered")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Label("\(entry.data.activePrayerCount) Active Prayers", systemImage: "hands.sparkles")
+            .containerBackground(for: .widget) { }
     }
 }
 
@@ -272,7 +338,7 @@ struct PrayerStatCard: View {
     let value: String
     let icon: String
     let color: Color
-    let theme: WidgetTheme
+    let styleConfig: WidgetStyleConfig
     
     var body: some View {
         VStack(spacing: 8) {
@@ -282,15 +348,15 @@ struct PrayerStatCard: View {
             
             Text(value)
                 .font(.title.bold())
-                .foregroundColor(theme.textColor)
+                .foregroundColor(styleConfig.textColor)
             
             Text(title)
                 .font(.caption)
-                .foregroundColor(theme.secondaryTextColor)
+                .foregroundColor(styleConfig.secondaryTextColor)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(theme.cardBackground)
+        .background(styleConfig.cardBackground)
         .cornerRadius(12)
     }
 }
@@ -298,18 +364,35 @@ struct PrayerStatCard: View {
 #Preview(as: .systemSmall) {
     PrayerReminderWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
 }
 
 #Preview(as: .systemMedium) {
     PrayerReminderWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
 }
 
 #Preview(as: .systemLarge) {
     PrayerReminderWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    PrayerReminderWidget()
+} timeline: {
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    PrayerReminderWidget()
+} timeline: {
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    PrayerReminderWidget()
+} timeline: {
+    PrayerReminderEntry(date: Date(), data: .placeholder, configuration: PrayerReminderIntent())
+}

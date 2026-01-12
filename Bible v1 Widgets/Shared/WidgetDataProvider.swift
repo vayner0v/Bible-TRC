@@ -8,6 +8,16 @@
 import Foundation
 import WidgetKit
 
+// MARK: - App Group Constants
+
+enum WidgetAppGroup {
+    static let suiteName = "group.vaynerov.Bible-v1"
+    static let widgetDataKey = "widget_data"
+    static let widgetConfigsKey = "widget_configs"
+}
+
+// MARK: - Widget Data Provider
+
 /// Provides data from App Group for widget timelines
 struct WidgetDataProvider {
     static let shared = WidgetDataProvider()
@@ -15,12 +25,12 @@ struct WidgetDataProvider {
     private let userDefaults: UserDefaults?
     
     private init() {
-        self.userDefaults = UserDefaults(suiteName: "group.vaynerov.Bible-v1")
+        self.userDefaults = UserDefaults(suiteName: WidgetAppGroup.suiteName)
     }
     
     /// Fetch widget data from App Group
     func fetchWidgetData() -> WidgetDisplayData {
-        guard let data = userDefaults?.data(forKey: "widget_data"),
+        guard let data = userDefaults?.data(forKey: WidgetAppGroup.widgetDataKey),
               let widgetData = try? JSONDecoder().decode(WidgetDataStorage.self, from: data) else {
             return .placeholder
         }
@@ -42,15 +52,79 @@ struct WidgetDataProvider {
             countdownTitle: widgetData.countdownTitle ?? "Countdown",
             countdownDate: widgetData.countdownTargetDate ?? Date().addingTimeInterval(86400 * 14),
             lastMood: widgetData.lastMood ?? "😊",
+            moodHistory: widgetData.moodHistory ?? [],
             gratitudeStreak: widgetData.gratitudeStreak ?? 0,
             todayGratitudeCompleted: widgetData.todayGratitudeCompleted ?? false,
             favoriteVerses: widgetData.favoriteVerses ?? [],
+            appTheme: widgetData.appTheme ?? "light",
             lastUpdated: widgetData.lastUpdated ?? Date()
         )
     }
+    
+    /// Fetch saved widget configurations
+    func fetchWidgetConfigs() -> [WidgetConfigStorage] {
+        // Try simplified format first (from widget extension)
+        if let data = userDefaults?.data(forKey: "widget_configs_simplified"),
+           let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            return jsonArray.compactMap { dict -> WidgetConfigStorage? in
+                guard let id = dict["id"] as? String,
+                      let name = dict["name"] as? String,
+                      let widgetType = dict["widgetType"] as? String,
+                      let size = dict["size"] as? String else {
+                    return nil
+                }
+                return WidgetConfigStorage(
+                    id: id,
+                    widgetType: widgetType,
+                    size: size,
+                    name: name,
+                    presetId: dict["presetId"] as? String,
+                    backgroundType: "solid",
+                    backgroundColor: nil,
+                    gradientColors: nil,
+                    gradientStartPoint: nil,
+                    gradientEndPoint: nil,
+                    patternName: nil,
+                    titleFontFamily: nil,
+                    titleFontSize: nil,
+                    titleFontWeight: nil,
+                    titleColor: nil,
+                    bodyFontFamily: nil,
+                    bodyFontSize: nil,
+                    bodyFontWeight: nil,
+                    bodyColor: nil,
+                    textAlignment: nil,
+                    cornerStyle: nil,
+                    padding: nil,
+                    showShadow: nil,
+                    selectedVerseReference: nil,
+                    translationId: nil,
+                    showPercentage: nil,
+                    showStreak: nil,
+                    countdownTitle: nil,
+                    countdownDate: nil,
+                    maxFavoritesToShow: nil
+                )
+            }
+        }
+        
+        // Fall back to trying to decode full format
+        guard let data = userDefaults?.data(forKey: WidgetAppGroup.widgetConfigsKey),
+              let configs = try? JSONDecoder().decode([WidgetConfigStorage].self, from: data) else {
+            return []
+        }
+        return configs
+    }
+    
+    /// Get a specific widget configuration by ID
+    func getConfig(id: String) -> WidgetConfigStorage? {
+        fetchWidgetConfigs().first { $0.id == id }
+    }
 }
 
-/// Storage model matching the app's WidgetData
+// MARK: - Storage Models (Matching main app's WidgetData)
+
+/// Storage model for widget data - matches the app's WidgetData structure
 struct WidgetDataStorage: Codable {
     var verseOfDayText: String?
     var verseOfDayReference: String?
@@ -68,6 +142,7 @@ struct WidgetDataStorage: Codable {
     var habitStreak: Int?
     var favoriteVerses: [FavoriteVerseStorage]?
     var lastMood: String?
+    var moodHistory: [String]?
     var lastMoodDate: Date?
     var gratitudeStreak: Int?
     var todayGratitudeCompleted: Bool?
@@ -77,13 +152,65 @@ struct WidgetDataStorage: Codable {
     var appTheme: String?
 }
 
-struct FavoriteVerseStorage: Codable {
+/// Favorite verse storage for widgets
+struct FavoriteVerseStorage: Codable, Equatable {
     let reference: String
     let text: String
     let bookName: String
     let chapter: Int
     let verse: Int
 }
+
+/// Widget configuration storage - mirrors main app's WidgetConfig
+struct WidgetConfigStorage: Codable, Identifiable {
+    let id: String
+    var widgetType: String
+    var size: String
+    var name: String
+    var presetId: String?
+    
+    // Styling
+    var backgroundType: String // "solid", "gradient", "pattern"
+    var backgroundColor: CodableColorStorage?
+    var gradientColors: [CodableColorStorage]?
+    var gradientStartPoint: String?
+    var gradientEndPoint: String?
+    var patternName: String?
+    
+    var titleFontFamily: String?
+    var titleFontSize: String?
+    var titleFontWeight: String?
+    var titleColor: CodableColorStorage?
+    
+    var bodyFontFamily: String?
+    var bodyFontSize: String?
+    var bodyFontWeight: String?
+    var bodyColor: CodableColorStorage?
+    
+    var textAlignment: String?
+    var cornerStyle: String?
+    var padding: String?
+    var showShadow: Bool?
+    
+    // Content config
+    var selectedVerseReference: String?
+    var translationId: String?
+    var showPercentage: Bool?
+    var showStreak: Bool?
+    var countdownTitle: String?
+    var countdownDate: Date?
+    var maxFavoritesToShow: Int?
+}
+
+/// Codable color storage
+struct CodableColorStorage: Codable {
+    let red: Double
+    let green: Double
+    let blue: Double
+    let opacity: Double
+}
+
+// MARK: - Display Data
 
 /// Display-ready data for widgets
 struct WidgetDisplayData {
@@ -103,16 +230,18 @@ struct WidgetDisplayData {
     let countdownTitle: String
     let countdownDate: Date
     let lastMood: String
+    let moodHistory: [String]
     let gratitudeStreak: Int
     let todayGratitudeCompleted: Bool
     let favoriteVerses: [FavoriteVerseStorage]
+    let appTheme: String
     let lastUpdated: Date
     
     var daysRemaining: Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let target = calendar.startOfDay(for: countdownDate)
-        return calendar.dateComponents([.day], from: today, to: target).day ?? 0
+        return max(0, calendar.dateComponents([.day], from: today, to: target).day ?? 0)
     }
     
     static var placeholder: WidgetDisplayData {
@@ -133,30 +262,61 @@ struct WidgetDisplayData {
             countdownTitle: "Easter",
             countdownDate: Date().addingTimeInterval(86400 * 14),
             lastMood: "😊",
+            moodHistory: ["😊", "😌", "🙏", "😔", "😊"],
             gratitudeStreak: 5,
             todayGratitudeCompleted: false,
             favoriteVerses: [
-                FavoriteVerseStorage(reference: "John 3:16", text: "For God so loved...", bookName: "John", chapter: 3, verse: 16),
-                FavoriteVerseStorage(reference: "Psalm 23:1", text: "The Lord is my shepherd...", bookName: "Psalms", chapter: 23, verse: 1)
+                FavoriteVerseStorage(reference: "John 3:16", text: "For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.", bookName: "John", chapter: 3, verse: 16),
+                FavoriteVerseStorage(reference: "Psalm 23:1", text: "The Lord is my shepherd; I shall not want.", bookName: "Psalms", chapter: 23, verse: 1),
+                FavoriteVerseStorage(reference: "Philippians 4:13", text: "I can do all things through Christ who strengthens me.", bookName: "Philippians", chapter: 4, verse: 13)
             ],
+            appTheme: "light",
             lastUpdated: Date()
         )
     }
 }
 
+// MARK: - Timeline Entry
+
 /// Common timeline entry for all widgets
 struct BibleWidgetEntry: TimelineEntry {
     let date: Date
     let data: WidgetDisplayData
-    let configuration: ConfigurationAppIntent?
+    let configuration: WidgetIntentConfiguration?
     
     static var placeholder: BibleWidgetEntry {
         BibleWidgetEntry(date: Date(), data: .placeholder, configuration: nil)
     }
 }
 
-/// Placeholder configuration intent
-struct ConfigurationAppIntent {
-    // For future configuration options
+/// Intent configuration passed from AppIntent to widget view
+struct WidgetIntentConfiguration {
+    // Style preset
+    var presetId: String?
+    var savedConfigId: String?
+    
+    // Style overrides
+    var backgroundStyle: BackgroundStyleConfig?
+    var titleColor: CodableColorStorage?
+    var bodyColor: CodableColorStorage?
+    
+    // Content options (widget-specific)
+    var showPercentage: Bool = true
+    var showStreak: Bool = true
+    var selectedVerseReference: String?
+    var translationId: String?
+    var countdownTitle: String?
+    var countdownDate: Date?
+    var maxFavoritesToShow: Int = 3
 }
 
+/// Background style configuration
+struct BackgroundStyleConfig {
+    enum StyleType {
+        case solid(color: CodableColorStorage)
+        case gradient(colors: [CodableColorStorage], start: String, end: String)
+        case pattern(name: String, baseColor: CodableColorStorage)
+    }
+    
+    var styleType: StyleType
+}

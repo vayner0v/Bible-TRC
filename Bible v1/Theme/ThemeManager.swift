@@ -8,12 +8,69 @@
 import SwiftUI
 import Combine
 
+/// Theme family for grouping related themes (e.g., Velvet Light/Dark)
+enum ThemeFamily: String, CaseIterable, Identifiable {
+    case standard   // System, Light, Dark, Sepia
+    case velvet     // Premium: Velvet Light/Dark
+    case frostedGlass // Premium: Frosted Glass Light/Dark
+    case aurora     // Premium: Aurora Light/Dark
+    case custom     // Purchasable: Theme Studio
+    
+    var id: String { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .standard: return "Standard"
+        case .velvet: return "Velvet"
+        case .frostedGlass: return "Frosted Glass"
+        case .aurora: return "Aurora"
+        case .custom: return "Custom"
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .standard: return "circle.lefthalf.filled"
+        case .velvet: return "sparkles.rectangle.stack"
+        case .frostedGlass: return "rectangle.on.rectangle"
+        case .aurora: return "sparkles"
+        case .custom: return "paintpalette.fill"
+        }
+    }
+    
+    /// Whether this theme family requires premium subscription
+    var isPremium: Bool {
+        switch self {
+        case .standard: return false
+        case .velvet, .frostedGlass, .aurora: return true
+        case .custom: return false // Custom requires separate purchase
+        }
+    }
+    
+    /// Whether this theme family requires Theme Studio purchase
+    var requiresThemeStudioPurchase: Bool {
+        self == .custom
+    }
+}
+
 /// Available app themes
 enum AppTheme: String, CaseIterable, Identifiable, Codable {
+    // Standard (Free) themes
     case system
     case light
     case dark
     case sepia
+    
+    // Premium themes (require subscription)
+    case velvetLight
+    case velvetDark
+    case frostedGlassLight
+    case frostedGlassDark
+    case auroraLight
+    case auroraDark
+    
+    // Custom theme (requires Theme Studio purchase)
+    case custom
     
     var id: String { rawValue }
     
@@ -23,6 +80,27 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .light: return "Light"
         case .dark: return "Dark"
         case .sepia: return "Sepia"
+        case .velvetLight: return "Velvet Light"
+        case .velvetDark: return "Velvet Dark"
+        case .frostedGlassLight: return "Glass Light"
+        case .frostedGlassDark: return "Glass Dark"
+        case .auroraLight: return "Aurora Light"
+        case .auroraDark: return "Aurora Dark"
+        case .custom: return "Custom"
+        }
+    }
+    
+    /// Short name for compact UI
+    var shortName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        case .sepia: return "Sepia"
+        case .velvetLight, .velvetDark: return "Velvet"
+        case .frostedGlassLight, .frostedGlassDark: return "Glass"
+        case .auroraLight, .auroraDark: return "Aurora"
+        case .custom: return "Custom"
         }
     }
     
@@ -32,15 +110,117 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .light: return "sun.max.fill"
         case .dark: return "moon.fill"
         case .sepia: return "book.fill"
+        case .velvetLight: return "sparkles.rectangle.stack"
+        case .velvetDark: return "sparkles.rectangle.stack.fill"
+        case .frostedGlassLight: return "rectangle.on.rectangle"
+        case .frostedGlassDark: return "rectangle.on.rectangle.fill"
+        case .auroraLight: return "sun.haze"
+        case .auroraDark: return "moon.haze"
+        case .custom: return "paintpalette.fill"
         }
     }
     
     var colorScheme: ColorScheme? {
         switch self {
         case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        case .sepia: return .light
+        case .light, .sepia, .velvetLight, .frostedGlassLight, .auroraLight: return .light
+        case .dark, .velvetDark, .frostedGlassDark, .auroraDark, .custom: return .dark
+        }
+    }
+    
+    /// The theme family this theme belongs to
+    var family: ThemeFamily {
+        switch self {
+        case .system, .light, .dark, .sepia: return .standard
+        case .velvetLight, .velvetDark: return .velvet
+        case .frostedGlassLight, .frostedGlassDark: return .frostedGlass
+        case .auroraLight, .auroraDark: return .aurora
+        case .custom: return .custom
+        }
+    }
+    
+    /// Whether this is a premium theme (requires subscription)
+    var isPremiumTheme: Bool {
+        family.isPremium
+    }
+    
+    /// Whether this theme requires Theme Studio purchase
+    var requiresThemeStudioPurchase: Bool {
+        family.requiresThemeStudioPurchase
+    }
+    
+    /// Whether this is a dark variant
+    var isDarkVariant: Bool {
+        switch self {
+        case .dark, .velvetDark, .frostedGlassDark, .auroraDark, .custom:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    /// Get the light variant of this theme (if applicable)
+    var lightVariant: AppTheme? {
+        switch self {
+        case .velvetLight, .velvetDark: return .velvetLight
+        case .frostedGlassLight, .frostedGlassDark: return .frostedGlassLight
+        case .auroraLight, .auroraDark: return .auroraLight
+        default: return nil
+        }
+    }
+    
+    /// Get the dark variant of this theme (if applicable)
+    var darkVariant: AppTheme? {
+        switch self {
+        case .velvetLight, .velvetDark: return .velvetDark
+        case .frostedGlassLight, .frostedGlassDark: return .frostedGlassDark
+        case .auroraLight, .auroraDark: return .auroraDark
+        default: return nil
+        }
+    }
+    
+    /// Whether this theme has light/dark variants
+    var hasVariants: Bool {
+        lightVariant != nil && darkVariant != nil
+    }
+    
+    /// Free themes only (for non-premium users)
+    static var freeThemes: [AppTheme] {
+        [.system, .light, .dark, .sepia]
+    }
+    
+    /// Premium themes only
+    static var premiumThemes: [AppTheme] {
+        [.velvetLight, .velvetDark, .frostedGlassLight, .frostedGlassDark, .auroraLight, .auroraDark]
+    }
+    
+    /// Theme families with variants (for premium theme picker)
+    static var premiumFamilies: [ThemeFamily] {
+        [.velvet, .frostedGlass, .aurora]
+    }
+    
+    /// Corner radius for this theme (premium themes use slightly rounded corners)
+    var cornerRadius: CGFloat {
+        switch family {
+        case .standard: return 12
+        case .velvet: return 14
+        case .frostedGlass: return 16
+        case .aurora: return 14
+        case .custom: return 12 // Will be customizable
+        }
+    }
+    
+    /// Whether this theme uses glass/blur effects
+    var usesGlassEffect: Bool {
+        family == .frostedGlass
+    }
+    
+    /// Blur radius for glass effects
+    var glassBlurRadius: CGFloat {
+        switch self {
+        case .frostedGlassLight: return AppColors.FrostedGlassLight.blurRadius
+        case .frostedGlassDark: return AppColors.FrostedGlassDark.blurRadius
+        default: return 0
         }
     }
 }
@@ -211,79 +391,411 @@ final class ThemeManager: ObservableObject {
     
     var backgroundColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.96, green: 0.93, blue: 0.87)
-        case .dark:
-            return Color(red: 0.11, green: 0.11, blue: 0.12)
-        case .light:
-            return Color(red: 0.99, green: 0.99, blue: 0.99)
         case .system:
             return Color(.systemBackground)
+        case .light:
+            return AppColors.Light.background
+        case .dark:
+            return AppColors.Dark.background
+        case .sepia:
+            return AppColors.Sepia.background
+        case .velvetLight:
+            return AppColors.VelvetLight.background
+        case .velvetDark:
+            return AppColors.VelvetDark.background
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.background
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.background
+        case .auroraLight:
+            return AppColors.AuroraLight.background
+        case .auroraDark:
+            return AppColors.AuroraDark.background
+        case .custom:
+            return customThemeColors.background
         }
     }
     
     var textColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.24, green: 0.20, blue: 0.15)
-        case .dark:
-            return Color(red: 0.92, green: 0.92, blue: 0.92)
-        case .light:
-            return Color(red: 0.12, green: 0.12, blue: 0.12)
         case .system:
             return Color(.label)
+        case .light:
+            return AppColors.Light.text
+        case .dark:
+            return AppColors.Dark.text
+        case .sepia:
+            return AppColors.Sepia.text
+        case .velvetLight:
+            return AppColors.VelvetLight.text
+        case .velvetDark:
+            return AppColors.VelvetDark.text
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.text
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.text
+        case .auroraLight:
+            return AppColors.AuroraLight.text
+        case .auroraDark:
+            return AppColors.AuroraDark.text
+        case .custom:
+            return customThemeColors.text
         }
     }
     
     var secondaryTextColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.45, green: 0.40, blue: 0.32)
-        case .dark:
-            return Color(red: 0.60, green: 0.60, blue: 0.60)
-        case .light:
-            return Color(red: 0.45, green: 0.45, blue: 0.45)
         case .system:
             return Color(.secondaryLabel)
+        case .light:
+            return AppColors.Light.secondaryText
+        case .dark:
+            return AppColors.Dark.secondaryText
+        case .sepia:
+            return AppColors.Sepia.secondaryText
+        case .velvetLight:
+            return AppColors.VelvetLight.textMuted
+        case .velvetDark:
+            return AppColors.VelvetDark.textMuted
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.textMuted
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.textMuted
+        case .auroraLight:
+            return AppColors.AuroraLight.textMuted
+        case .auroraDark:
+            return AppColors.AuroraDark.textMuted
+        case .custom:
+            return customThemeColors.textMuted
         }
     }
     
     var accentColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.55, green: 0.35, blue: 0.20)
-        case .dark:
-            return Color(red: 0.40, green: 0.60, blue: 0.90)
-        case .light:
-            return Color(red: 0.20, green: 0.45, blue: 0.75)
         case .system:
             return .accentColor
+        case .light:
+            return AppColors.Light.accent
+        case .dark:
+            return AppColors.Dark.accent
+        case .sepia:
+            return AppColors.Sepia.accent
+        case .velvetLight:
+            return AppColors.VelvetLight.accent
+        case .velvetDark:
+            return AppColors.VelvetDark.accent
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.accent
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.accent
+        case .auroraLight:
+            return AppColors.AuroraLight.accent
+        case .auroraDark:
+            return AppColors.AuroraDark.accent
+        case .custom:
+            return customThemeColors.accent
+        }
+    }
+    
+    /// Primary color for CTAs and buttons
+    var primaryColor: Color {
+        switch selectedTheme {
+        case .system:
+            return .accentColor
+        case .light:
+            return AppColors.Light.accent
+        case .dark:
+            return AppColors.Dark.accent
+        case .sepia:
+            return AppColors.Sepia.accent
+        case .velvetLight:
+            return AppColors.VelvetLight.primary
+        case .velvetDark:
+            return AppColors.VelvetDark.primary
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.primary
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.primary
+        case .auroraLight:
+            return AppColors.AuroraLight.primary
+        case .auroraDark:
+            return AppColors.AuroraDark.primary
+        case .custom:
+            return customThemeColors.primary
+        }
+    }
+    
+    /// Text color on primary buttons
+    var onPrimaryColor: Color {
+        switch selectedTheme {
+        case .velvetLight:
+            return AppColors.VelvetLight.onPrimary
+        case .velvetDark:
+            return AppColors.VelvetDark.onPrimary
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.onPrimary
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.onPrimary
+        case .auroraLight:
+            return AppColors.AuroraLight.onPrimary
+        case .auroraDark:
+            return AppColors.AuroraDark.onPrimary
+        case .custom:
+            return customThemeColors.onPrimary
+        default:
+            return .white
         }
     }
     
     var cardBackgroundColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.94, green: 0.90, blue: 0.82)
-        case .dark:
-            return Color(red: 0.17, green: 0.17, blue: 0.18)
-        case .light:
-            return Color(red: 0.96, green: 0.96, blue: 0.97)
         case .system:
             return Color(.secondarySystemBackground)
+        case .light:
+            return AppColors.Light.cardBackground
+        case .dark:
+            return AppColors.Dark.cardBackground
+        case .sepia:
+            return AppColors.Sepia.cardBackground
+        case .velvetLight:
+            return AppColors.VelvetLight.surface
+        case .velvetDark:
+            return AppColors.VelvetDark.surface
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.glassSurface
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.glassSurface
+        case .auroraLight:
+            return AppColors.AuroraLight.surface
+        case .auroraDark:
+            return AppColors.AuroraDark.surface
+        case .custom:
+            return customThemeColors.surface
+        }
+    }
+    
+    /// Elevated surface for cards and modals
+    var elevatedSurfaceColor: Color {
+        switch selectedTheme {
+        case .system:
+            return Color(.tertiarySystemBackground)
+        case .light:
+            return Color.white
+        case .dark:
+            return Color(red: 0.20, green: 0.20, blue: 0.22)
+        case .sepia:
+            return Color(red: 0.97, green: 0.94, blue: 0.88)
+        case .velvetLight:
+            return AppColors.VelvetLight.surfaceElevated
+        case .velvetDark:
+            return AppColors.VelvetDark.surfaceElevated
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.glassElevated
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.glassElevated
+        case .auroraLight:
+            return AppColors.AuroraLight.surfaceElevated
+        case .auroraDark:
+            return AppColors.AuroraDark.surfaceElevated
+        case .custom:
+            return customThemeColors.surfaceElevated
         }
     }
     
     var dividerColor: Color {
         switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.85, green: 0.80, blue: 0.70)
-        case .dark:
-            return Color(red: 0.25, green: 0.25, blue: 0.27)
-        case .light:
-            return Color(red: 0.88, green: 0.88, blue: 0.88)
         case .system:
             return Color(.separator)
+        case .light:
+            return AppColors.Light.divider
+        case .dark:
+            return AppColors.Dark.divider
+        case .sepia:
+            return AppColors.Sepia.divider
+        case .velvetLight:
+            return AppColors.VelvetLight.border
+        case .velvetDark:
+            return AppColors.VelvetDark.border
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.border
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.border
+        case .auroraLight:
+            return AppColors.AuroraLight.border
+        case .auroraDark:
+            return AppColors.AuroraDark.border
+        case .custom:
+            return customThemeColors.border
+        }
+    }
+    
+    /// Link color for tappable text
+    var linkColor: Color {
+        switch selectedTheme {
+        case .velvetLight:
+            return AppColors.VelvetLight.link
+        case .velvetDark:
+            return AppColors.VelvetDark.link
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.link
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.link
+        case .auroraLight:
+            return AppColors.AuroraLight.link
+        case .auroraDark:
+            return AppColors.AuroraDark.link
+        case .custom:
+            return customThemeColors.accent
+        default:
+            return accentColor
+        }
+    }
+    
+    /// Success color (green)
+    var successColor: Color {
+        switch selectedTheme {
+        case .velvetLight:
+            return AppColors.VelvetLight.success
+        case .velvetDark:
+            return AppColors.VelvetDark.success
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.success
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.success
+        case .auroraLight:
+            return AppColors.AuroraLight.success
+        case .auroraDark:
+            return AppColors.AuroraDark.success
+        default:
+            return .green
+        }
+    }
+    
+    /// Warning color (amber/orange)
+    var warningColor: Color {
+        switch selectedTheme {
+        case .velvetLight:
+            return AppColors.VelvetLight.warning
+        case .velvetDark:
+            return AppColors.VelvetDark.warning
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.warning
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.warning
+        case .auroraLight:
+            return AppColors.AuroraLight.warning
+        case .auroraDark:
+            return AppColors.AuroraDark.warning
+        default:
+            return .orange
+        }
+    }
+    
+    /// Error color (red)
+    var errorColor: Color {
+        switch selectedTheme {
+        case .velvetLight:
+            return AppColors.VelvetLight.error
+        case .velvetDark:
+            return AppColors.VelvetDark.error
+        case .frostedGlassLight:
+            return AppColors.FrostedGlassLight.error
+        case .frostedGlassDark:
+            return AppColors.FrostedGlassDark.error
+        case .auroraLight:
+            return AppColors.AuroraLight.error
+        case .auroraDark:
+            return AppColors.AuroraDark.error
+        default:
+            return .red
+        }
+    }
+    
+    // MARK: - Custom Theme Colors (loaded from SettingsStore)
+    
+    /// Custom theme color configuration - loaded from user's saved configuration
+    private var customThemeColors: CustomThemeColors {
+        SettingsStore.shared.customThemeConfig.generatedColors
+    }
+    
+    /// Custom theme corner radius
+    var customCornerRadius: CGFloat {
+        SettingsStore.shared.customThemeConfig.cornerRadiusValue
+    }
+    
+    /// Whether custom theme uses glass blur
+    var customUsesGlassBlur: Bool {
+        SettingsStore.shared.customThemeConfig.shouldApplyGlassBlur
+    }
+    
+    /// Custom theme blur radius
+    var customBlurRadius: CGFloat {
+        SettingsStore.shared.customThemeConfig.blurRadius
+    }
+    
+    // MARK: - Glass Effects (Frosted Glass theme)
+    
+    /// Whether current theme uses glass/blur effects
+    var usesGlassEffect: Bool {
+        selectedTheme.usesGlassEffect
+    }
+    
+    /// Blur radius for glass effects
+    var glassBlurRadius: CGFloat {
+        selectedTheme.glassBlurRadius
+    }
+    
+    /// Background gradient for frosted glass themes
+    var frostedGlassGradient: LinearGradient? {
+        switch selectedTheme {
+        case .frostedGlassLight:
+            return LinearGradient(
+                colors: [AppColors.FrostedGlassLight.bgGradientA, AppColors.FrostedGlassLight.bgGradientB],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .frostedGlassDark:
+            return LinearGradient(
+                colors: [AppColors.FrostedGlassDark.bgGradientA, AppColors.FrostedGlassDark.bgGradientB],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
+            return nil
+        }
+    }
+    
+    // MARK: - Aurora Gradients
+    
+    /// Aurora gradient for special effects
+    var auroraGradient: LinearGradient? {
+        switch selectedTheme {
+        case .auroraLight:
+            return LinearGradient(
+                colors: [AppColors.AuroraLight.gradientStart, AppColors.AuroraLight.gradientEnd],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .auroraDark:
+            return LinearGradient(
+                colors: [AppColors.AuroraDark.gradientStart, AppColors.AuroraDark.gradientEnd],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
+            return nil
+        }
+    }
+    
+    /// Secondary color for Aurora theme (violet)
+    var auroraSecondaryColor: Color? {
+        switch selectedTheme {
+        case .auroraLight:
+            return AppColors.AuroraLight.secondary
+        case .auroraDark:
+            return AppColors.AuroraDark.secondary
+        default:
+            return nil
         }
     }
     
@@ -291,6 +803,16 @@ final class ThemeManager: ObservableObject {
     
     /// Gradient for Hub feature tiles
     var hubTileGradient: LinearGradient {
+        // Use aurora gradient for aurora themes
+        if let aurora = auroraGradient {
+            return aurora
+        }
+        
+        // Use frosted glass gradient for glass themes
+        if let glass = frostedGlassGradient {
+            return glass
+        }
+        
         switch selectedTheme {
         case .sepia:
             return LinearGradient(
@@ -319,7 +841,31 @@ final class ThemeManager: ObservableObject {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-        case .system:
+        case .velvetLight:
+            return LinearGradient(
+                colors: [
+                    AppColors.VelvetLight.surfaceElevated,
+                    AppColors.VelvetLight.surface
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .velvetDark:
+            return LinearGradient(
+                colors: [
+                    AppColors.VelvetDark.surfaceElevated,
+                    AppColors.VelvetDark.surface
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .custom:
+            return LinearGradient(
+                colors: [elevatedSurfaceColor, cardBackgroundColor],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
             return LinearGradient(
                 colors: [
                     Color(.tertiarySystemBackground),
@@ -333,6 +879,11 @@ final class ThemeManager: ObservableObject {
     
     /// Secondary accent color for Hub tiles
     var hubTileSecondaryColor: Color {
+        // For aurora themes, use the violet accent
+        if let secondary = auroraSecondaryColor {
+            return secondary
+        }
+        
         switch selectedTheme {
         case .sepia:
             return Color(red: 0.65, green: 0.45, blue: 0.30)
@@ -340,7 +891,13 @@ final class ThemeManager: ObservableObject {
             return Color(red: 0.50, green: 0.70, blue: 0.95)
         case .light:
             return Color(red: 0.30, green: 0.55, blue: 0.85)
-        case .system:
+        case .velvetLight, .velvetDark:
+            return accentColor
+        case .frostedGlassLight, .frostedGlassDark:
+            return accentColor.opacity(0.9)
+        case .custom:
+            return accentColor.opacity(0.8)
+        default:
             return Color.accentColor.opacity(0.8)
         }
     }
@@ -354,7 +911,15 @@ final class ThemeManager: ObservableObject {
             return Color(red: 0.45, green: 0.65, blue: 0.95)
         case .light:
             return Color(red: 0.25, green: 0.50, blue: 0.80)
-        case .system:
+        case .velvetLight, .velvetDark:
+            return accentColor
+        case .frostedGlassLight, .frostedGlassDark:
+            return primaryColor
+        case .auroraLight, .auroraDark:
+            return AppColors.AuroraLight.accentTeal
+        case .custom:
+            return accentColor
+        default:
             return Color.accentColor
         }
     }
@@ -364,27 +929,20 @@ final class ThemeManager: ObservableObject {
         switch selectedTheme {
         case .sepia:
             return Color(red: 0.40, green: 0.35, blue: 0.25).opacity(0.15)
-        case .dark:
+        case .dark, .velvetDark, .frostedGlassDark, .auroraDark:
             return Color.black.opacity(0.4)
-        case .light:
+        case .light, .velvetLight, .frostedGlassLight, .auroraLight:
             return Color.black.opacity(0.08)
-        case .system:
+        case .custom:
+            return Color.black.opacity(selectedTheme.isDarkVariant ? 0.4 : 0.08)
+        default:
             return Color.black.opacity(0.1)
         }
     }
     
     /// Elevated surface color for Hub cards
     var hubElevatedSurface: Color {
-        switch selectedTheme {
-        case .sepia:
-            return Color(red: 0.97, green: 0.94, blue: 0.88)
-        case .dark:
-            return Color(red: 0.20, green: 0.20, blue: 0.22)
-        case .light:
-            return Color.white
-        case .system:
-            return Color(.systemBackground)
-        }
+        elevatedSurfaceColor
     }
     
     // MARK: - Theme Gradients

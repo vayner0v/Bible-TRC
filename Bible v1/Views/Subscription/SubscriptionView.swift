@@ -87,15 +87,25 @@ struct SubscriptionView: View {
                             .foregroundColor(themeManager.secondaryTextColor)
                     }
                     
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("AI Voices Enabled")
-                            .font(.caption)
-                            .foregroundColor(.green)
+                    VStack(spacing: 4) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Unlimited TRC AI")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                        
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("AI Voices Enabled")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
                     }
                 } else {
-                    Text("Upgrade to unlock AI voices")
+                    Text("Upgrade to unlock TRC AI & AI voices")
                         .font(.subheadline)
                         .foregroundColor(themeManager.secondaryTextColor)
                 }

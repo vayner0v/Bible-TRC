@@ -719,6 +719,12 @@ struct DestructiveConfirmationSheet: View {
 struct QuickSettingsSection: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
+    
+    @State private var selectedPremiumFamily: ThemeFamily?
+    @State private var showThemeStudioSheet = false
+    @State private var showPaywall = false
+    @State private var showThemeStudioPurchase = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -729,25 +735,49 @@ struct QuickSettingsSection: View {
                 .padding(.horizontal, 4)
             
             VStack(spacing: 16) {
-                // Theme picker (segmented)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Theme")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(themeManager.secondaryTextColor)
-                    
-                    HStack(spacing: 8) {
-                        ForEach(AppTheme.allCases) { theme in
-                            QuickThemeButton(
-                                theme: theme,
-                                isSelected: settings.selectedTheme == theme
-                            ) {
-                                settings.selectedTheme = theme
-                                HapticManager.shared.selection()
-                            }
+                // Theme picker - Free themes
+                ThemeSectionView(
+                    title: "Theme",
+                    themes: AppTheme.freeThemes,
+                    selectedTheme: settings.selectedTheme,
+                    themeManager: themeManager,
+                    onSelect: { theme in
+                        settings.selectedTheme = theme
+                        HapticManager.shared.selection()
+                    }
+                )
+                
+                // Premium themes section
+                PremiumThemeSectionView(
+                    isPremium: subscriptionManager.isPremium,
+                    selectedTheme: settings.selectedTheme,
+                    themeManager: themeManager,
+                    onSelectFamily: { family in
+                        if subscriptionManager.isPremium {
+                            selectedPremiumFamily = family
+                        } else {
+                            showPaywall = true
                         }
                     }
-                }
+                )
+                
+                // Custom Theme (Theme Studio)
+                CustomThemeButtonView(
+                    isPurchased: subscriptionManager.canUseThemeStudio,
+                    isSelected: settings.selectedTheme == .custom,
+                    themeManager: themeManager,
+                    onTap: {
+                        if subscriptionManager.canUseThemeStudio {
+                            showThemeStudioSheet = true
+                        } else {
+                            showThemeStudioPurchase = true
+                        }
+                    },
+                    onApply: {
+                        settings.selectedTheme = .custom
+                        HapticManager.shared.success()
+                    }
+                )
                 
                 Divider()
                     .background(themeManager.dividerColor)
@@ -793,6 +823,512 @@ struct QuickSettingsSection: View {
             .background(themeManager.cardBackgroundColor)
             .cornerRadius(14)
         }
+        .sheet(item: $selectedPremiumFamily) { family in
+            ThemeModePickerSheet(themeFamily: family) { theme in
+                settings.selectedTheme = theme
+            }
+        }
+        .sheet(isPresented: $showThemeStudioSheet) {
+            ThemeStudioView()
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
+        .sheet(isPresented: $showThemeStudioPurchase) {
+            ThemeStudioPurchaseSheet()
+        }
+    }
+}
+
+// MARK: - Theme Section View
+
+struct ThemeSectionView: View {
+    let title: String
+    let themes: [AppTheme]
+    let selectedTheme: AppTheme
+    let themeManager: ThemeManager
+    let onSelect: (AppTheme) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(themeManager.secondaryTextColor)
+            
+            HStack(spacing: 8) {
+                ForEach(themes) { theme in
+                    QuickThemeButton(
+                        theme: theme,
+                        isSelected: selectedTheme == theme
+                    ) {
+                        onSelect(theme)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Premium Theme Section
+
+struct PremiumThemeSectionView: View {
+    let isPremium: Bool
+    let selectedTheme: AppTheme
+    let themeManager: ThemeManager
+    let onSelectFamily: (ThemeFamily) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Premium Themes")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
+                
+                if !isPremium {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                        .foregroundColor(themeManager.secondaryTextColor)
+                } else {
+                    Image(systemName: "crown.fill")
+                        .font(.caption2)
+                        .foregroundColor(.yellow)
+                }
+            }
+            
+            HStack(spacing: 8) {
+                ForEach(AppTheme.premiumFamilies, id: \.self) { family in
+                    PremiumThemeFamilyButton(
+                        family: family,
+                        isLocked: !isPremium,
+                        isSelected: selectedTheme.family == family,
+                        themeManager: themeManager
+                    ) {
+                        onSelectFamily(family)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Premium Theme Family Button
+
+struct PremiumThemeFamilyButton: View {
+    let family: ThemeFamily
+    let isLocked: Bool
+    let isSelected: Bool
+    let themeManager: ThemeManager
+    let action: () -> Void
+    
+    private var gradientColors: [Color] {
+        switch family {
+        case .velvet:
+            return [Color(hex: "C9A24B"), Color(hex: "8A5D00")]
+        case .frostedGlass:
+            return [Color(hex: "0A84FF"), Color(hex: "0069FF")]
+        case .aurora:
+            return [Color(hex: "14B8A6"), Color(hex: "A855F7")]
+        default:
+            return [themeManager.accentColor, themeManager.accentColor.opacity(0.7)]
+        }
+    }
+    
+    @ViewBuilder
+    private var backgroundGradient: some View {
+        if isSelected {
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                .opacity(0.15)
+        } else {
+            Color.clear
+        }
+    }
+    
+    private var borderGradient: LinearGradient {
+        if isSelected {
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            LinearGradient(colors: [themeManager.dividerColor], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Image(systemName: family.icon)
+                        .font(.title3)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: isSelected ? gradientColors : [themeManager.secondaryTextColor],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.white)
+                            .padding(3)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                            .offset(x: 10, y: -10)
+                    }
+                }
+                
+                Text(family.displayName)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(backgroundGradient)
+            .foregroundColor(isSelected ? gradientColors[0] : themeManager.secondaryTextColor)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(borderGradient, lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .accessibilityLabel("\(family.displayName) theme")
+        .accessibilityValue(isLocked ? "Locked, requires premium" : (isSelected ? "Selected" : ""))
+    }
+}
+
+// MARK: - Custom Theme Button
+
+struct CustomThemeButtonView: View {
+    let isPurchased: Bool
+    let isSelected: Bool
+    let themeManager: ThemeManager
+    let onTap: () -> Void
+    let onApply: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Custom Theme")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
+                
+                if !isPurchased {
+                    // Sale badge
+                    HStack(spacing: 2) {
+                        Text("$3.33")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                        Text("$4.99")
+                            .font(.caption2)
+                            .strikethrough()
+                            .opacity(0.7)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        LinearGradient(
+                            colors: [.green, .mint],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(4)
+                }
+            }
+            
+            HStack(spacing: 8) {
+                // Theme Studio button
+                Button(action: onTap) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "paintpalette.fill")
+                            .font(.title3)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.purple, .pink, .orange],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Theme Studio")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            
+                            Text(isPurchased ? "Customize" : "Unlock")
+                                .font(.caption2)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                        
+                        Spacer()
+                        
+                        if !isPurchased {
+                            Image(systemName: "sparkles")
+                                .font(.caption)
+                                .foregroundColor(.yellow)
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(themeManager.secondaryTextColor)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity)
+                    .background(themeManager.backgroundColor)
+                    .foregroundColor(themeManager.textColor)
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.purple.opacity(0.5), .pink.opacity(0.5), .orange.opacity(0.5)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                }
+                
+                // Apply custom theme button (if purchased)
+                if isPurchased {
+                    Button(action: onApply) {
+                        VStack(spacing: 4) {
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                            Text("Apply")
+                                .font(.caption2)
+                        }
+                        .frame(width: 60)
+                        .padding(.vertical, 10)
+                        .background(isSelected ? themeManager.accentColor.opacity(0.15) : Color.clear)
+                        .foregroundColor(isSelected ? themeManager.accentColor : themeManager.secondaryTextColor)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(isSelected ? themeManager.accentColor : themeManager.dividerColor, lineWidth: isSelected ? 2 : 1)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Theme Studio Purchase Sheet
+
+struct ThemeStudioPurchaseSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
+    
+    @State private var isPurchasing = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                // Gradient background
+                LinearGradient(
+                    colors: [
+                        themeManager.backgroundColor,
+                        Color.purple.opacity(0.1),
+                        Color.pink.opacity(0.1),
+                        themeManager.backgroundColor
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    // Icon
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.purple, .pink, .orange],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 100, height: 100)
+                            .shadow(color: .purple.opacity(0.4), radius: 20)
+                        
+                        Image(systemName: "paintpalette.fill")
+                            .font(.system(size: 44))
+                            .foregroundColor(.white)
+                    }
+                    
+                    // Title
+                    VStack(spacing: 8) {
+                        Text("Theme Studio")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundColor(themeManager.textColor)
+                        
+                        Text("Create your perfect reading experience")
+                            .font(.subheadline)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                            .multilineTextAlignment(.center)
+                    }
+                    
+                    // Features
+                    VStack(spacing: 12) {
+                        ThemeStudioFeatureRow(icon: "paintbrush.fill", title: "Custom Accent Colors", description: "Choose from presets or pick any color")
+                        ThemeStudioFeatureRow(icon: "slider.horizontal.3", title: "Neutral Temperature", description: "Adjust warmth from cool to sepia")
+                        ThemeStudioFeatureRow(icon: "square.on.square", title: "Corner Radius", description: "Minimal to pill-shaped corners")
+                        ThemeStudioFeatureRow(icon: "rectangle.on.rectangle", title: "Glass Effects", description: "Optional blur and translucency")
+                    }
+                    .padding(.horizontal)
+                    
+                    Spacer()
+                    
+                    // Price and purchase
+                    VStack(spacing: 16) {
+                        // Price display
+                        HStack(spacing: 8) {
+                            Text("$3.33")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(themeManager.textColor)
+                            
+                            Text("$4.99")
+                                .font(.title3)
+                                .strikethrough()
+                                .foregroundColor(themeManager.secondaryTextColor)
+                            
+                            Text("33% OFF")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.green)
+                                .cornerRadius(4)
+                        }
+                        
+                        Text("One-time purchase • Yours forever")
+                            .font(.caption)
+                            .foregroundColor(themeManager.secondaryTextColor)
+                        
+                        // Purchase button
+                        Button {
+                            purchaseThemeStudio()
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isPurchasing {
+                                    ProgressView()
+                                        .tint(.white)
+                                } else {
+                                    Image(systemName: "sparkles")
+                                    Text("Unlock Theme Studio")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                LinearGradient(
+                                    colors: [.purple, .pink],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .cornerRadius(14)
+                        }
+                        .disabled(isPurchasing)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .alert("Purchase Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func purchaseThemeStudio() {
+        isPurchasing = true
+        
+        Task {
+            do {
+                let success = try await subscriptionManager.purchaseThemeStudio()
+                isPurchasing = false
+                
+                if success {
+                    HapticManager.shared.success()
+                    dismiss()
+                }
+            } catch {
+                isPurchasing = false
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+        }
+    }
+}
+
+struct ThemeStudioFeatureRow: View {
+    let icon: String
+    let title: String
+    let description: String
+    
+    @ObservedObject private var themeManager = ThemeManager.shared
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(themeManager.accentColor.opacity(0.2))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: icon)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.purple, .pink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(themeManager.textColor)
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(themeManager.secondaryTextColor)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+        }
+        .padding()
+        .background(themeManager.cardBackgroundColor)
+        .cornerRadius(12)
     }
 }
 
@@ -811,8 +1347,10 @@ struct QuickThemeButton: View {
                 Image(systemName: theme.icon)
                     .font(.title3)
                 
-                Text(theme.displayName)
+                Text(theme.shortName)
                     .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)

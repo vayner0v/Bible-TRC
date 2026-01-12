@@ -68,7 +68,8 @@ struct HubGridView: View {
             // Row 3: Daily Routine + Guided Prayer
             HubTileConfig(
                 destination: .dailyRoutine,
-                isCompleted: viewModel.didCompleteMorningRoutine || viewModel.didCompleteNightRoutine
+                isCompleted: viewModel.didCompleteMorningRoutine || viewModel.didCompleteNightRoutine,
+                streak: viewModel.bestRoutineStreak > 0 ? viewModel.bestRoutineStreak : nil
             ),
             HubTileConfig(
                 destination: .guidedPrayer

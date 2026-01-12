@@ -475,3 +475,8 @@ class JournalViewModel: ObservableObject {
     }
 }
 
+
+
+
+
+

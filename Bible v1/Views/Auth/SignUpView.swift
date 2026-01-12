@@ -2,296 +2,323 @@
 //  SignUpView.swift
 //  Bible v1
 //
-//  Email/password sign-up form with social login options
+//  User registration view with Apple, Google, and Email/Password
+//  NOTE: Email/password section can be removed - see REMOVABLE_EMAIL_AUTH markers
 //
 
 import SwiftUI
 
 struct SignUpView: View {
-    @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var authService = AuthService.shared
     
+    @State private var showEmailForm = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    // REMOVABLE_EMAIL_AUTH: START - These states are only for email form
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
-    @State private var givenName = ""
-    @State private var familyName = ""
+    @State private var displayName = ""
     @State private var showPassword = false
-    @State private var acceptedTerms = false
+    // REMOVABLE_EMAIL_AUTH: END
     
-    var onLoginTapped: () -> Void
-    var onConfirmationNeeded: (String) -> Void
-    var onAuthenticated: () -> Void
+    @Environment(\.dismiss) private var dismiss
     
-    // Password validation
-    private var passwordRequirements: [PasswordRequirement] {
-        [
-            PasswordRequirement(text: "At least 8 characters", isMet: password.count >= 8),
-            PasswordRequirement(text: "Uppercase letter", isMet: password.contains(where: { $0.isUppercase })),
-            PasswordRequirement(text: "Lowercase letter", isMet: password.contains(where: { $0.isLowercase })),
-            PasswordRequirement(text: "Number", isMet: password.contains(where: { $0.isNumber })),
-            PasswordRequirement(text: "Special character", isMet: password.contains(where: { "!@#$%^&*()_+-=[]{}|;:,.<>?".contains($0) })),
-        ]
-    }
-    
-    private var isPasswordValid: Bool {
-        passwordRequirements.allSatisfy { $0.isMet }
-    }
-    
-    private var doPasswordsMatch: Bool {
-        !password.isEmpty && password == confirmPassword
-    }
-    
-    private var isFormValid: Bool {
-        !email.isEmpty && isPasswordValid && doPasswordsMatch && acceptedTerms
-    }
-    
-    // Set to true when social providers are configured in AWS Cognito
-    private let socialProvidersEnabled = false
+    var onSuccess: (() -> Void)?
+    var onSwitchToSignIn: (() -> Void)?
     
     var body: some View {
-        VStack(spacing: 24) {
-            // Social Login Buttons (hidden until providers are configured)
-            if socialProvidersEnabled {
-                socialLoginSection
-                dividerSection
+        ZStack {
+            themeManager.backgroundColor
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 32) {
+                    // Header
+                    headerSection
+                    
+                    if showEmailForm {
+                        // REMOVABLE_EMAIL_AUTH: Remove this entire if branch
+                        emailFormSection
+                    } else {
+                        // Social Sign In Buttons
+                        socialButtonsSection
+                    }
+                    
+                    // Sign In Link
+                    signInLink
+                }
+                .padding(24)
             }
-            
-            // Sign Up Form
-            signUpFormSection
-            
-            // Login Link
-            loginSection
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "An error occurred")
         }
     }
     
-    // MARK: - Social Login
+    // MARK: - Header Section
     
-    private var socialLoginSection: some View {
+    private var headerSection: some View {
         VStack(spacing: 12) {
-            SocialLoginButton(
-                provider: .apple,
-                isLoading: authService.isLoading
-            ) {
-                Task {
-                    do {
-                        try await authService.signInWithApple()
-                        if authService.isAuthenticated {
-                            onAuthenticated()
-                        }
-                    } catch {
-                        // Error handled by AuthService
-                    }
-                }
-            }
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 60))
+                .foregroundStyle(themeManager.accentGradient)
             
-            SocialLoginButton(
-                provider: .google,
-                isLoading: authService.isLoading
-            ) {
-                Task {
-                    do {
-                        try await authService.signInWithGoogle()
-                        if authService.isAuthenticated {
-                            onAuthenticated()
-                        }
-                    } catch {
-                        // Error handled by AuthService
-                    }
-                }
-            }
-        }
-    }
-    
-    // MARK: - Divider
-    
-    private var dividerSection: some View {
-        HStack {
-            Rectangle()
-                .fill(themeManager.secondaryTextColor.opacity(0.3))
-                .frame(height: 1)
+            Text("Create Account")
+                .font(.title)
+                .fontWeight(.bold)
+                .foregroundColor(themeManager.textColor)
             
-            Text("or sign up with email")
+            Text("Sync your favorites, notes, and progress across devices")
                 .font(.subheadline)
                 .foregroundColor(themeManager.secondaryTextColor)
-                .padding(.horizontal, 16)
-            
-            Rectangle()
-                .fill(themeManager.secondaryTextColor.opacity(0.3))
-                .frame(height: 1)
+                .multilineTextAlignment(.center)
         }
+        .padding(.top, 20)
     }
     
-    // MARK: - Sign Up Form
+    // MARK: - Social Buttons Section
     
-    private var signUpFormSection: some View {
+    private var socialButtonsSection: some View {
+        SocialSignInButtons(
+            onAppleSuccess: {
+                HapticManager.shared.success()
+                onSuccess?()
+            },
+            onAppleError: { error in
+                handleError(error)
+            },
+            onGoogleSuccess: {
+                HapticManager.shared.success()
+                onSuccess?()
+            },
+            onGoogleError: { error in
+                handleError(error)
+            },
+            onEmailTap: {
+                // REMOVABLE_EMAIL_AUTH: Remove this closure body
+                withAnimation(.spring(response: 0.3)) {
+                    showEmailForm = true
+                }
+            }
+        )
+    }
+    
+    // MARK: - Email Form Section
+    // REMOVABLE_EMAIL_AUTH: START - Remove this entire section
+    
+    private var emailFormSection: some View {
         VStack(spacing: 16) {
-            // Name fields (optional)
-            HStack(spacing: 12) {
-                AuthTextField(
-                    placeholder: "First Name",
-                    text: $givenName,
-                    textContentType: .givenName
-                )
+            // Back button
+            HStack {
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        showEmailForm = false
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(themeManager.accentColor)
+                }
+                Spacer()
+            }
+            
+            // Display Name
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name (optional)")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
                 
-                AuthTextField(
-                    placeholder: "Last Name",
-                    text: $familyName,
-                    textContentType: .familyName
-                )
+                HStack(spacing: 12) {
+                    Image(systemName: "person")
+                        .foregroundColor(themeManager.secondaryTextColor)
+                        .frame(width: 20)
+                    
+                    TextField("Your name", text: $displayName)
+                        .textContentType(.name)
+                        .autocapitalization(.words)
+                }
+                .padding()
+                .background(themeManager.cardBackgroundColor)
+                .cornerRadius(12)
             }
             
             // Email
-            AuthTextField(
-                placeholder: "Email",
-                text: $email,
-                keyboardType: .emailAddress,
-                textContentType: .emailAddress
-            )
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Email")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
+                
+                HStack(spacing: 12) {
+                    Image(systemName: "envelope")
+                        .foregroundColor(themeManager.secondaryTextColor)
+                        .frame(width: 20)
+                    
+                    TextField("your@email.com", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                }
+                .padding()
+                .background(themeManager.cardBackgroundColor)
+                .cornerRadius(12)
+            }
             
             // Password
-            AuthTextField(
-                placeholder: "Password",
-                text: $password,
-                isSecure: !showPassword,
-                textContentType: .newPassword,
-                trailingIcon: showPassword ? "eye.slash" : "eye",
-                onTrailingIconTapped: {
-                    showPassword.toggle()
-                }
-            )
-            
-            // Password Requirements
-            if !password.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(passwordRequirements) { req in
-                        HStack(spacing: 6) {
-                            Image(systemName: req.isMet ? "checkmark.circle.fill" : "circle")
-                                .font(.caption)
-                                .foregroundColor(req.isMet ? .green : themeManager.secondaryTextColor)
-                            
-                            Text(req.text)
-                                .font(.caption)
-                                .foregroundColor(req.isMet ? themeManager.textColor : themeManager.secondaryTextColor)
-                        }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Password")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
+                
+                HStack(spacing: 12) {
+                    Image(systemName: "lock")
+                        .foregroundColor(themeManager.secondaryTextColor)
+                        .frame(width: 20)
+                    
+                    if showPassword {
+                        TextField("Create a password", text: $password)
+                            .textContentType(.newPassword)
+                    } else {
+                        SecureField("Create a password", text: $password)
+                            .textContentType(.newPassword)
+                    }
+                    
+                    Button {
+                        showPassword.toggle()
+                    } label: {
+                        Image(systemName: showPassword ? "eye.slash" : "eye")
+                            .foregroundColor(themeManager.secondaryTextColor)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+                .padding()
+                .background(themeManager.cardBackgroundColor)
+                .cornerRadius(12)
+                
+                Text("8+ characters with a number and special character")
+                    .font(.caption2)
+                    .foregroundColor(themeManager.secondaryTextColor)
             }
             
             // Confirm Password
-            AuthTextField(
-                placeholder: "Confirm Password",
-                text: $confirmPassword,
-                isSecure: true,
-                textContentType: .newPassword
-            )
-            
-            // Password match indicator
-            if !confirmPassword.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: doPasswordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(doPasswordsMatch ? .green : .red)
-                    
-                    Text(doPasswordsMatch ? "Passwords match" : "Passwords don't match")
-                        .font(.caption)
-                        .foregroundColor(doPasswordsMatch ? .green : .red)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-            }
-            
-            // Terms and Conditions
-            HStack(alignment: .top, spacing: 12) {
-                Button {
-                    acceptedTerms.toggle()
-                } label: {
-                    Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
-                        .font(.title3)
-                        .foregroundColor(acceptedTerms ? themeManager.accentColor : themeManager.secondaryTextColor)
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Confirm Password")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(themeManager.secondaryTextColor)
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 0) {
-                        Text("I agree to the ")
-                            .foregroundColor(themeManager.secondaryTextColor)
-                        Text("Terms of Service")
-                            .foregroundColor(themeManager.accentColor)
-                    }
-                    HStack(spacing: 0) {
-                        Text("and ")
-                            .foregroundColor(themeManager.secondaryTextColor)
-                        Text("Privacy Policy")
-                            .foregroundColor(themeManager.accentColor)
-                    }
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.fill")
+                        .foregroundColor(themeManager.secondaryTextColor)
+                        .frame(width: 20)
+                    
+                    SecureField("Confirm your password", text: $confirmPassword)
+                        .textContentType(.newPassword)
+                }
+                .padding()
+                .background(themeManager.cardBackgroundColor)
+                .cornerRadius(12)
+                
+                if !confirmPassword.isEmpty && password != confirmPassword {
+                    Text("Passwords don't match")
+                        .font(.caption2)
+                        .foregroundColor(.red)
                 }
             }
-            .font(.subheadline)
-            .frame(maxWidth: .infinity, alignment: .leading)
             
             // Sign Up Button
-            AuthButton(
-                title: "Create Account",
-                isLoading: authService.isLoading
-            ) {
+            Button {
                 Task {
-                    do {
-                        try await authService.signUp(
-                            email: email,
-                            password: password,
-                            givenName: givenName.isEmpty ? nil : givenName,
-                            familyName: familyName.isEmpty ? nil : familyName
-                        )
-                        
-                        // Check if confirmation is needed
-                        if case .confirmingSignUp(let email) = authService.authState {
-                            onConfirmationNeeded(email)
-                        } else if authService.isAuthenticated {
-                            onAuthenticated()
-                        }
-                    } catch {
-                        // Error handled by AuthService
+                    await signUpWithEmail()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if authService.isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Create Account")
+                        Image(systemName: "arrow.right")
                     }
                 }
+                .font(.headline)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(isEmailFormValid ? themeManager.accentGradient : LinearGradient(colors: [.gray], startPoint: .leading, endPoint: .trailing))
+                .cornerRadius(14)
             }
-            .disabled(!isFormValid)
+            .disabled(!isEmailFormValid || authService.isLoading)
         }
     }
     
-    // MARK: - Login Link
+    private var isEmailFormValid: Bool {
+        !email.isEmpty &&
+        !password.isEmpty &&
+        password == confirmPassword &&
+        password.count >= 8
+    }
     
-    private var loginSection: some View {
-        HStack(spacing: 4) {
-            Text("Already have an account?")
-                .foregroundColor(themeManager.secondaryTextColor)
-            
-            Button("Sign In") {
-                onLoginTapped()
-            }
-            .fontWeight(.semibold)
-            .foregroundColor(themeManager.accentColor)
+    private func signUpWithEmail() async {
+        do {
+            try await authService.signUp(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password,
+                displayName: displayName.isEmpty ? nil : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            HapticManager.shared.success()
+            onSuccess?()
+        } catch {
+            handleError(error)
         }
-        .font(.subheadline)
+    }
+    
+    // REMOVABLE_EMAIL_AUTH: END
+    
+    // MARK: - Sign In Link
+    
+    private var signInLink: some View {
+        Button {
+            onSwitchToSignIn?()
+        } label: {
+            HStack(spacing: 4) {
+                Text("Already have an account?")
+                    .foregroundColor(themeManager.secondaryTextColor)
+                Text("Sign In")
+                    .fontWeight(.semibold)
+                    .foregroundColor(themeManager.accentColor)
+            }
+            .font(.subheadline)
+        }
+    }
+    
+    // MARK: - Error Handling
+    
+    private func handleError(_ error: Error) {
+        if let authError = error as? AuthError {
+            if case .cancelled = authError {
+                // User cancelled, don't show error
+                return
+            }
+            errorMessage = authError.errorDescription
+        } else {
+            errorMessage = error.localizedDescription
+        }
+        showError = true
+        HapticManager.shared.error()
     }
 }
-
-// MARK: - Password Requirement
-
-struct PasswordRequirement: Identifiable {
-    let id = UUID()
-    let text: String
-    let isMet: Bool
-}
-
-// MARK: - Preview
 
 #Preview {
-    SignUpView(
-        onLoginTapped: {},
-        onConfirmationNeeded: { _ in },
-        onAuthenticated: {}
-    )
+    SignUpView()
 }
-

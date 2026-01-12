@@ -473,3 +473,8 @@ class JournalStorageService: ObservableObject {
     }
 }
 
+
+
+
+
+

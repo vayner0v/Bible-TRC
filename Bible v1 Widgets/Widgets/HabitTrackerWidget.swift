@@ -12,58 +12,52 @@ struct HabitTrackerWidget: Widget {
     let kind: String = "HabitTrackerWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: HabitTrackerProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: HabitTrackerIntent.self,
+            provider: HabitTrackerIntentProvider()
+        ) { entry in
             HabitTrackerWidgetView(entry: entry)
         }
         .configurationDisplayName("Habit Tracker")
         .description("Monitor your daily spiritual habits")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-    }
-}
-
-struct HabitTrackerProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Update every hour
-        let nextUpdate = Date().addingTimeInterval(3600)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct HabitTrackerWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: HabitTrackerEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemSmall:
+                smallView
+            case .systemMedium:
+                mediumView
+            case .systemLarge:
+                largeView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://habits"))
     }
     
     // MARK: - Small View
@@ -84,31 +78,43 @@ struct HabitTrackerWidgetView: View {
             Spacer()
             
             // Circular progress
-            HStack {
-                Spacer()
-                
-                ZStack {
-                    Circle()
-                        .stroke(theme.cardBackground, lineWidth: 6)
-                        .frame(width: 55, height: 55)
+            if entry.configuration.showCompletionRing {
+                HStack {
+                    Spacer()
                     
-                    Circle()
-                        .trim(from: 0, to: entry.data.todayHabitProgress)
-                        .stroke(.green, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 55, height: 55)
+                    ZStack {
+                        Circle()
+                            .stroke(styleConfig.cardBackground, lineWidth: 6)
+                            .frame(width: 55, height: 55)
+                        
+                        Circle()
+                            .trim(from: 0, to: entry.data.todayHabitProgress)
+                            .stroke(.green, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 55, height: 55)
+                        
+                        Text("\(entry.data.completedHabits)/\(entry.data.totalHabits)")
+                            .font(.caption.bold())
+                            .foregroundColor(styleConfig.textColor)
+                    }
                     
-                    Text("\(entry.data.completedHabits)/\(entry.data.totalHabits)")
-                        .font(.caption.bold())
-                        .foregroundColor(theme.textColor)
+                    Spacer()
                 }
-                
-                Spacer()
+            } else {
+                VStack(alignment: .center, spacing: 4) {
+                    Text("\(entry.data.completedHabits)/\(entry.data.totalHabits)")
+                        .font(.title.bold())
+                        .foregroundColor(styleConfig.textColor)
+                    Text("completed")
+                        .font(.caption2)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                }
+                .frame(maxWidth: .infinity)
             }
             
             Spacer()
             
-            if entry.data.habitStreak > 0 {
+            if entry.configuration.showStreak && entry.data.habitStreak > 0 {
                 HStack(spacing: 2) {
                     Image(systemName: "flame.fill")
                         .font(.caption2)
@@ -119,7 +125,9 @@ struct HabitTrackerWidgetView: View {
             }
         }
         .padding(12)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Medium View
@@ -127,24 +135,26 @@ struct HabitTrackerWidgetView: View {
     private var mediumView: some View {
         HStack(spacing: 16) {
             // Left side - progress ring
-            ZStack {
-                Circle()
-                    .stroke(theme.cardBackground, lineWidth: 8)
-                    .frame(width: 70, height: 70)
-                
-                Circle()
-                    .trim(from: 0, to: entry.data.todayHabitProgress)
-                    .stroke(.green, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 70, height: 70)
-                
-                VStack(spacing: 0) {
-                    Text("\(entry.data.completedHabits)")
-                        .font(.title2.bold())
-                        .foregroundColor(theme.textColor)
-                    Text("of \(entry.data.totalHabits)")
-                        .font(.caption2)
-                        .foregroundColor(theme.secondaryTextColor)
+            if entry.configuration.showCompletionRing {
+                ZStack {
+                    Circle()
+                        .stroke(styleConfig.cardBackground, lineWidth: 8)
+                        .frame(width: 70, height: 70)
+                    
+                    Circle()
+                        .trim(from: 0, to: entry.data.todayHabitProgress)
+                        .stroke(.green, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 70, height: 70)
+                    
+                    VStack(spacing: 0) {
+                        Text("\(entry.data.completedHabits)")
+                            .font(.title2.bold())
+                            .foregroundColor(styleConfig.textColor)
+                        Text("of \(entry.data.totalHabits)")
+                            .font(.caption2)
+                            .foregroundColor(styleConfig.secondaryTextColor)
+                    }
                 }
             }
             
@@ -157,14 +167,14 @@ struct HabitTrackerWidgetView: View {
                     Text("Daily Habits")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                 }
                 
                 Text(entry.data.todayHabitProgress >= 1.0 ? "All done! Great job!" : "Keep going, you're doing great!")
                     .font(.caption)
-                    .foregroundColor(theme.secondaryTextColor)
+                    .foregroundColor(styleConfig.secondaryTextColor)
                 
-                if entry.data.habitStreak > 0 {
+                if entry.configuration.showStreak && entry.data.habitStreak > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill")
                         Text("\(entry.data.habitStreak) day streak")
@@ -177,7 +187,9 @@ struct HabitTrackerWidgetView: View {
             Spacer()
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Large View
@@ -199,16 +211,16 @@ struct HabitTrackerWidgetView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Daily Habits")
                         .font(.headline)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                     
                     Text("Build consistency every day")
                         .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 Spacer()
                 
-                if entry.data.habitStreak > 0 {
+                if entry.configuration.showStreak && entry.data.habitStreak > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill")
                         Text("\(entry.data.habitStreak)")
@@ -223,37 +235,39 @@ struct HabitTrackerWidgetView: View {
             }
             
             Divider()
-                .background(theme.secondaryTextColor.opacity(0.3))
+                .background(styleConfig.secondaryTextColor.opacity(0.3))
             
             // Large progress ring
-            HStack {
-                Spacer()
-                
-                ZStack {
-                    Circle()
-                        .stroke(theme.cardBackground, lineWidth: 14)
-                        .frame(width: 130, height: 130)
+            if entry.configuration.showCompletionRing {
+                HStack {
+                    Spacer()
                     
-                    Circle()
-                        .trim(from: 0, to: entry.data.todayHabitProgress)
-                        .stroke(.green, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 130, height: 130)
-                    
-                    VStack(spacing: 4) {
-                        Text("\(entry.data.completedHabits)/\(entry.data.totalHabits)")
-                            .font(.title.bold())
-                            .foregroundColor(theme.textColor)
+                    ZStack {
+                        Circle()
+                            .stroke(styleConfig.cardBackground, lineWidth: 14)
+                            .frame(width: 130, height: 130)
                         
-                        Text("Complete")
-                            .font(.caption)
-                            .foregroundColor(theme.secondaryTextColor)
+                        Circle()
+                            .trim(from: 0, to: entry.data.todayHabitProgress)
+                            .stroke(.green, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 130, height: 130)
+                        
+                        VStack(spacing: 4) {
+                            Text("\(entry.data.completedHabits)/\(entry.data.totalHabits)")
+                                .font(.title.bold())
+                                .foregroundColor(styleConfig.textColor)
+                            
+                            Text("Complete")
+                                .font(.caption)
+                                .foregroundColor(styleConfig.secondaryTextColor)
+                        }
                     }
+                    
+                    Spacer()
                 }
-                
-                Spacer()
+                .padding(.vertical, 8)
             }
-            .padding(.vertical, 8)
             
             Spacer()
             
@@ -268,35 +282,100 @@ struct HabitTrackerWidgetView: View {
                 } else {
                     Text("\(entry.data.totalHabits - entry.data.completedHabits) habits remaining today")
                         .font(.subheadline)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 Spacer()
             }
             .padding(.vertical, 12)
-            .background(theme.cardBackground)
+            .background(styleConfig.cardBackground)
             .cornerRadius(10)
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        Gauge(value: entry.data.todayHabitProgress) {
+            Image(systemName: "checkmark.circle.fill")
+        } currentValueLabel: {
+            Text("\(entry.data.completedHabits)")
+                .font(.caption2)
+        }
+        .gaugeStyle(.accessoryCircularCapacity)
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("\(entry.data.completedHabits)/\(entry.data.totalHabits) Habits")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                if entry.data.habitStreak > 0 {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("\(entry.data.habitStreak)")
+                        .font(.system(size: 15, weight: .bold))
+                }
+            }
+            .widgetAccentable()
+            
+            Gauge(value: entry.data.todayHabitProgress) {
+                EmptyView()
+            }
+            .gaugeStyle(.accessoryLinearCapacity)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Label("\(entry.data.completedHabits)/\(entry.data.totalHabits) Habits", systemImage: "checkmark.circle.fill")
+            .containerBackground(for: .widget) { }
     }
 }
 
 #Preview(as: .systemSmall) {
     HabitTrackerWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
 }
 
 #Preview(as: .systemMedium) {
     HabitTrackerWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
 }
 
 #Preview(as: .systemLarge) {
     HabitTrackerWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    HabitTrackerWidget()
+} timeline: {
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    HabitTrackerWidget()
+} timeline: {
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    HabitTrackerWidget()
+} timeline: {
+    HabitTrackerEntry(date: Date(), data: .placeholder, configuration: HabitTrackerIntent())
+}

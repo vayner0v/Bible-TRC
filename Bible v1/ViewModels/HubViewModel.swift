@@ -16,6 +16,7 @@ class HubViewModel: ObservableObject {
     // MARK: - Services
     
     private let storage = HubStorageService.shared
+    private let widgetService = WidgetDataService.shared
     private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Published Properties
@@ -186,6 +187,57 @@ class HubViewModel: ObservableObject {
         dailyIntention = storage.getTodayIntention()
         weeklyStats = storage.getWeeklyStats()
         updateActivePlan()
+        
+        // Sync widget data
+        syncWidgetData()
+    }
+    
+    /// Sync all relevant data to widgets
+    private func syncWidgetData() {
+        // Sync verse of the day
+        let verse = verseOfTheDay
+        widgetService.updateVerseOfDay(text: verse.text, reference: verse.reference)
+        
+        // Sync reading progress
+        if let plan = activePlan, let progress = activeProgress {
+            let totalDays = plan.days.count
+            let completedCount = progress.completedDays.count
+            let progressPercent = totalDays > 0 ? Double(completedCount) / Double(totalDays) : 0.0
+            
+            widgetService.updateReadingProgress(
+                planName: plan.name,
+                progress: progressPercent,
+                streak: progress.currentStreak,
+                currentDay: progress.currentDay,
+                totalDays: totalDays
+            )
+        }
+        
+        // Sync prayer data
+        widgetService.updatePrayerData(
+            activeCount: unansweredPrayers.count,
+            answeredCount: answeredPrayers.count,
+            lastTime: prayerEntries.first?.dateCreated
+        )
+        
+        // Sync habit data
+        let maxStreak = trackedHabits.map { getStreak(for: $0) }.max() ?? 0
+        widgetService.updateHabitData(
+            progress: todayHabitProgress,
+            completed: todayCompletedHabits.count,
+            total: trackedHabits.count,
+            streak: maxStreak
+        )
+        
+        // Sync mood/gratitude
+        let moodHistory = Array(moodEntries.prefix(5).compactMap { $0.mood.emoji })
+        widgetService.updateMoodGratitude(
+            lastMood: todayMood?.mood.emoji,
+            moodHistory: moodHistory,
+            lastDate: todayMood?.date,
+            gratitudeStreak: gratitudeStreak,
+            todayCompleted: hasCompletedTodayGratitude
+        )
     }
     
     private func updateActivePlan() {
@@ -272,12 +324,60 @@ class HubViewModel: ObservableObject {
         todayGratitude = storage.getTodayGratitude()
     }
     
-    func getWeeklyGratitudeSummary() -> WeeklyGratitudeSummary {
-        storage.getWeeklyGratitudeSummary()
+    func removeGratitudeItem(at index: Int, from entry: GratitudeEntry) {
+        storage.removeGratitudeItem(at: index, from: entry)
+        todayGratitude = storage.getTodayGratitude()
+        refreshData()
+    }
+    
+    func updateGratitudeItem(at index: Int, in entry: GratitudeEntry, text: String, category: GratitudeCategory) {
+        storage.updateGratitudeItem(at: index, in: entry, text: text, category: category)
+        todayGratitude = storage.getTodayGratitude()
+        refreshData()
+    }
+    
+    func updateGratitudeReflection(_ entry: GratitudeEntry, reflection: String?) {
+        storage.updateGratitudeReflection(entry, reflection: reflection)
+        todayGratitude = storage.getTodayGratitude()
+        refreshData()
+    }
+    
+    func deleteGratitudeEntry(_ entry: GratitudeEntry) {
+        storage.deleteGratitudeEntry(entry)
+        todayGratitude = storage.getTodayGratitude()
+        refreshData()
+    }
+    
+    func getGratitudeEntry(for date: Date) -> GratitudeEntry? {
+        storage.getGratitudeEntry(for: date)
+    }
+    
+    func getAllGratitudeEntries() -> [GratitudeEntry] {
+        storage.getAllGratitudeEntries()
+    }
+    
+    func getGratitudeEntries(for month: Date) -> [GratitudeEntry] {
+        storage.getGratitudeEntries(for: month)
+    }
+    
+    func getWeeklyGratitudeSummary(weekOffset: Int = 0) -> WeeklyGratitudeSummary {
+        storage.getWeeklyGratitudeSummary(weekOffset: weekOffset)
+    }
+    
+    func hasGratitudeEntriesBeforeWeek(offset: Int) -> Bool {
+        storage.hasGratitudeEntriesBeforeWeek(offset: offset)
+    }
+    
+    func getGratitudeActivity(days: Int = 7) -> [(date: Date, hasEntry: Bool, isComplete: Bool)] {
+        storage.getGratitudeActivity(days: days)
     }
     
     var gratitudeStreak: Int {
         storage.gratitudeStreak
+    }
+    
+    var longestGratitudeStreak: Int {
+        storage.longestGratitudeStreak
     }
     
     // MARK: - Mood Actions
@@ -319,7 +419,7 @@ class HubViewModel: ObservableObject {
         updateActivePlan()
     }
     
-    // MARK: - Routine Actions
+    // MARK: - Routine Actions (Legacy)
     
     func completeMorningRoutine() {
         storage.recordMorningRoutine()
@@ -341,6 +441,148 @@ class HubViewModel: ObservableObject {
     /// Get weekly stats (used as fallback if cached stats are nil)
     func getWeeklyStats() -> WeeklyStats {
         storage.getWeeklyStats()
+    }
+    
+    // MARK: - Enhanced Routine Actions
+    
+    /// Get all routine configurations
+    func getAllRoutineConfigurations() -> [RoutineConfiguration] {
+        storage.getAllRoutineConfigurations()
+    }
+    
+    /// Get routines for a specific mode
+    func getRoutineConfigurations(for mode: RoutineMode) -> [RoutineConfiguration] {
+        storage.getRoutineConfigurations(for: mode)
+    }
+    
+    /// Get the default routine for a mode
+    func getDefaultRoutine(for mode: RoutineMode) -> RoutineConfiguration? {
+        storage.getDefaultRoutine(for: mode)
+    }
+    
+    /// Get a specific routine configuration
+    func getRoutineConfiguration(id: UUID) -> RoutineConfiguration? {
+        storage.getRoutineConfiguration(id: id)
+    }
+    
+    /// Add a new routine configuration
+    func addRoutineConfiguration(_ config: RoutineConfiguration) {
+        storage.addRoutineConfiguration(config)
+    }
+    
+    /// Update an existing routine configuration
+    func updateRoutineConfiguration(_ config: RoutineConfiguration) {
+        storage.updateRoutineConfiguration(config)
+    }
+    
+    /// Delete a routine configuration
+    func deleteRoutineConfiguration(_ config: RoutineConfiguration) {
+        storage.deleteRoutineConfiguration(config)
+    }
+    
+    /// Set the default routine for a mode
+    func setDefaultRoutine(id: UUID, for mode: RoutineMode) {
+        storage.setDefaultRoutine(id: id, for: mode)
+    }
+    
+    /// Duplicate a routine
+    func duplicateRoutineConfiguration(_ config: RoutineConfiguration, newName: String? = nil) -> RoutineConfiguration {
+        storage.duplicateRoutineConfiguration(config, newName: newName)
+    }
+    
+    /// Record a routine completion with full data and sync
+    func recordRoutineCompletion(
+        configuration: RoutineConfiguration,
+        startTime: Date,
+        stepsCompleted: Int,
+        intentionText: String? = nil,
+        gratitudeItems: [String] = [],
+        reflectionNotes: String? = nil,
+        moodAtStart: MoodLevel? = nil,
+        moodAtEnd: MoodLevel? = nil
+    ) {
+        let completion = RoutineCompletion(
+            configurationId: configuration.id,
+            configurationName: configuration.name,
+            mode: configuration.mode,
+            startTime: startTime,
+            stepsCompleted: stepsCompleted,
+            totalSteps: configuration.enabledSteps.count,
+            intentionText: intentionText,
+            gratitudeItems: gratitudeItems,
+            reflectionNotes: reflectionNotes,
+            moodAtStart: moodAtStart,
+            moodAtEnd: moodAtEnd,
+            autoCheckedHabits: configuration.linkedHabits
+        )
+        
+        // Record the completion
+        storage.recordRoutineCompletion(completion)
+        
+        // Sync gratitude items to main gratitude tracker
+        for item in gratitudeItems where !item.isEmpty {
+            addGratitudeItem(item, category: .general)
+        }
+        
+        // Record mood if provided
+        if let mood = moodAtEnd {
+            recordMood(mood)
+        }
+        
+        // Auto-check linked habits
+        for habit in configuration.linkedHabits {
+            if !isHabitCompletedToday(habit) {
+                recordHabit(habit, notes: "Completed via \(configuration.name)")
+            }
+        }
+        
+        // Update legacy tracking for backward compatibility
+        if configuration.mode == .morning {
+            didCompleteMorningRoutine = true
+        } else if configuration.mode == .evening {
+            didCompleteNightRoutine = true
+        }
+        
+        if let intention = intentionText, !intention.isEmpty {
+            setDailyIntention(intention)
+        }
+        
+        refreshData()
+    }
+    
+    /// Get routine analytics
+    func getRoutineAnalytics(period: RoutineAnalytics.AnalyticsPeriod = .week) -> RoutineAnalytics {
+        storage.getRoutineAnalytics(period: period)
+    }
+    
+    /// Get streak for a specific mode
+    func getRoutineStreak(for mode: RoutineMode) -> RoutineStreak {
+        storage.getRoutineStreak(for: mode)
+    }
+    
+    /// Get the best current streak
+    var bestRoutineStreak: Int {
+        storage.bestCurrentRoutineStreak
+    }
+    
+    /// Get combined routine streak
+    var combinedRoutineStreak: RoutineStreak {
+        storage.combinedRoutineStreak
+    }
+    
+    /// Get today's routine completions
+    func getTodayRoutineCompletions() -> [RoutineCompletion] {
+        storage.getTodayRoutineCompletions()
+    }
+    
+    /// Get completion calendar for visualization
+    func getRoutineCompletionCalendar(days: Int = 30) -> [(date: Date, completions: [RoutineCompletion])] {
+        storage.getRoutineCompletionCalendar(days: days)
+    }
+    
+    /// Check if a specific mode routine was completed today
+    func didCompleteRoutineToday(mode: RoutineMode) -> Bool {
+        storage.didCompleteRoutineToday(mode: mode)
     }
     
     // MARK: - Verse of the Day

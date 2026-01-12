@@ -122,15 +122,18 @@ enum GratitudeCategory: String, Codable, CaseIterable, Identifiable {
 struct WeeklyGratitudeSummary: Identifiable {
     let id: UUID
     let weekStartDate: Date
+    let weekEndDate: Date
     let entries: [GratitudeEntry]
     
     init(
         id: UUID = UUID(),
         weekStartDate: Date,
+        weekEndDate: Date? = nil,
         entries: [GratitudeEntry]
     ) {
         self.id = id
         self.weekStartDate = weekStartDate
+        self.weekEndDate = weekEndDate ?? Calendar.current.date(byAdding: .day, value: 6, to: weekStartDate) ?? weekStartDate
         self.entries = entries
     }
     
@@ -144,9 +147,19 @@ struct WeeklyGratitudeSummary: Identifiable {
         entries.count
     }
     
+    /// Number of complete days (3 items each)
+    var completeDays: Int {
+        entries.filter { $0.isComplete }.count
+    }
+    
     /// All items flattened for display
     var allItems: [GratitudeItem] {
         entries.flatMap { $0.items }
+    }
+    
+    /// Entries sorted by date (oldest first - Monday to Sunday for weekly view)
+    var sortedEntries: [GratitudeEntry] {
+        entries.sorted { $0.date < $1.date }
     }
     
     /// Most common category
@@ -156,14 +169,62 @@ struct WeeklyGratitudeSummary: Identifiable {
         return counts.max(by: { $0.value < $1.value })?.key
     }
     
-    /// Week date range for display
+    /// Category distribution for visualization
+    var categoryDistribution: [(category: GratitudeCategory, count: Int)] {
+        let counts = Dictionary(grouping: allItems, by: { $0.category }).mapValues { $0.count }
+        return counts.map { ($0.key, $0.value) }.sorted { $0.count > $1.count }
+    }
+    
+    /// Week date range for display (respects locale)
     var dateRangeText: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
-        let endDate = Calendar.current.date(byAdding: .day, value: 6, to: weekStartDate) ?? weekStartDate
-        return "\(formatter.string(from: weekStartDate)) - \(formatter.string(from: endDate))"
+        
+        // Check if week spans different years
+        let startYear = Calendar.current.component(.year, from: weekStartDate)
+        let endYear = Calendar.current.component(.year, from: weekEndDate)
+        
+        if startYear != endYear {
+            let yearFormatter = DateFormatter()
+            yearFormatter.dateFormat = "MMM d, yyyy"
+            return "\(yearFormatter.string(from: weekStartDate)) - \(yearFormatter.string(from: weekEndDate))"
+        }
+        
+        return "\(formatter.string(from: weekStartDate)) - \(formatter.string(from: weekEndDate))"
+    }
+    
+    /// Check if this is the current week (Monday-Sunday)
+    var isCurrentWeek: Bool {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let start = calendar.startOfDay(for: weekStartDate)
+        let end = calendar.startOfDay(for: weekEndDate)
+        return today >= start && today <= end
+    }
+    
+    /// Formatted week label (e.g., "This Week", "Last Week", or date range)
+    var weekLabel: String {
+        if isCurrentWeek {
+            return "This Week"
+        }
+        
+        // Check if this is last week (weekEndDate is 7 days before current week start)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let weekEnd = calendar.startOfDay(for: weekEndDate)
+        
+        // If the week ended within the last 7 days and it's not current week, it's last week
+        if let daysDiff = calendar.dateComponents([.day], from: weekEnd, to: today).day,
+           daysDiff > 0 && daysDiff <= 7 {
+            return "Last Week"
+        }
+        
+        return dateRangeText
     }
 }
+
+
+
 
 
 

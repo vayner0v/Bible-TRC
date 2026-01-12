@@ -12,58 +12,52 @@ struct ReadingProgressWidget: Widget {
     let kind: String = "ReadingProgressWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: ReadingProgressProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: ReadingProgressIntent.self,
+            provider: ReadingProgressIntentProvider()
+        ) { entry in
             ReadingProgressWidgetView(entry: entry)
         }
         .configurationDisplayName("Reading Progress")
         .description("Track your Bible reading plan")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-    }
-}
-
-struct ReadingProgressProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Update every hour
-        let nextUpdate = Date().addingTimeInterval(3600)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct ReadingProgressWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: ReadingProgressEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemSmall:
+                smallView
+            case .systemMedium:
+                mediumView
+            case .systemLarge:
+                largeView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://reading-plan"))
     }
     
     // MARK: - Small View
@@ -86,7 +80,7 @@ struct ReadingProgressWidgetView: View {
             // Circular progress
             ZStack {
                 Circle()
-                    .stroke(theme.cardBackground, lineWidth: 6)
+                    .stroke(styleConfig.cardBackground, lineWidth: 6)
                     .frame(width: 50, height: 50)
                 
                 Circle()
@@ -95,9 +89,11 @@ struct ReadingProgressWidgetView: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: 50, height: 50)
                 
-                Text("\(Int(entry.data.readingProgress * 100))%")
-                    .font(.caption.bold())
-                    .foregroundColor(theme.textColor)
+                if entry.configuration.showPercentage {
+                    Text("\(Int(entry.data.readingProgress * 100))%")
+                        .font(.caption.bold())
+                        .foregroundColor(styleConfig.textColor)
+                }
             }
             .frame(maxWidth: .infinity)
             
@@ -105,10 +101,12 @@ struct ReadingProgressWidgetView: View {
             
             Text("Day \(entry.data.currentDay)/\(entry.data.totalDays)")
                 .font(.caption2)
-                .foregroundColor(theme.secondaryTextColor)
+                .foregroundColor(styleConfig.secondaryTextColor)
         }
         .padding(12)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Medium View
@@ -118,7 +116,7 @@ struct ReadingProgressWidgetView: View {
             // Left side - progress ring
             ZStack {
                 Circle()
-                    .stroke(theme.cardBackground, lineWidth: 8)
+                    .stroke(styleConfig.cardBackground, lineWidth: 8)
                     .frame(width: 70, height: 70)
                 
                 Circle()
@@ -130,10 +128,10 @@ struct ReadingProgressWidgetView: View {
                 VStack(spacing: 0) {
                     Text("\(Int(entry.data.readingProgress * 100))")
                         .font(.title2.bold())
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                     Text("%")
                         .font(.caption2)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
             }
             
@@ -146,20 +144,20 @@ struct ReadingProgressWidgetView: View {
                     Text("Reading Progress")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                 }
                 
                 Text(entry.data.readingPlanName)
                     .font(.headline)
-                    .foregroundColor(theme.textColor)
+                    .foregroundColor(styleConfig.textColor)
                     .lineLimit(1)
                 
                 HStack(spacing: 12) {
                     Label("Day \(entry.data.currentDay)", systemImage: "calendar")
                         .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                     
-                    if entry.data.readingStreak > 0 {
+                    if entry.configuration.showStreak && entry.data.readingStreak > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "flame.fill")
                             Text("\(entry.data.readingStreak)")
@@ -173,7 +171,9 @@ struct ReadingProgressWidgetView: View {
             Spacer()
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Large View
@@ -195,16 +195,16 @@ struct ReadingProgressWidgetView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reading Progress")
                         .font(.headline)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                     
                     Text(entry.data.readingPlanName)
                         .font(.subheadline)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 Spacer()
                 
-                if entry.data.readingStreak > 0 {
+                if entry.configuration.showStreak && entry.data.readingStreak > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill")
                         Text("\(entry.data.readingStreak)")
@@ -219,7 +219,7 @@ struct ReadingProgressWidgetView: View {
             }
             
             Divider()
-                .background(theme.secondaryTextColor.opacity(0.3))
+                .background(styleConfig.secondaryTextColor.opacity(0.3))
             
             // Large progress ring
             HStack {
@@ -227,7 +227,7 @@ struct ReadingProgressWidgetView: View {
                 
                 ZStack {
                     Circle()
-                        .stroke(theme.cardBackground, lineWidth: 12)
+                        .stroke(styleConfig.cardBackground, lineWidth: 12)
                         .frame(width: 120, height: 120)
                     
                     Circle()
@@ -239,11 +239,11 @@ struct ReadingProgressWidgetView: View {
                     VStack(spacing: 2) {
                         Text("\(Int(entry.data.readingProgress * 100))%")
                             .font(.title.bold())
-                            .foregroundColor(theme.textColor)
+                            .foregroundColor(styleConfig.textColor)
                         
                         Text("Complete")
                             .font(.caption)
-                            .foregroundColor(theme.secondaryTextColor)
+                            .foregroundColor(styleConfig.secondaryTextColor)
                     }
                 }
                 
@@ -255,13 +255,57 @@ struct ReadingProgressWidgetView: View {
             
             // Stats row
             HStack(spacing: 0) {
-                StatBox(title: "Current Day", value: "\(entry.data.currentDay)", icon: "calendar", theme: theme)
-                StatBox(title: "Total Days", value: "\(entry.data.totalDays)", icon: "calendar.badge.checkmark", theme: theme)
-                StatBox(title: "Remaining", value: "\(entry.data.totalDays - entry.data.currentDay + 1)", icon: "hourglass", theme: theme)
+                StatBox(title: "Current Day", value: "\(entry.data.currentDay)", icon: "calendar", styleConfig: styleConfig)
+                StatBox(title: "Total Days", value: "\(entry.data.totalDays)", icon: "calendar.badge.checkmark", styleConfig: styleConfig)
+                StatBox(title: "Remaining", value: "\(entry.data.totalDays - entry.data.currentDay + 1)", icon: "hourglass", styleConfig: styleConfig)
             }
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        Gauge(value: entry.data.readingProgress) {
+            Image(systemName: "book.fill")
+        } currentValueLabel: {
+            Text("\(Int(entry.data.readingProgress * 100))")
+                .font(.caption2)
+        }
+        .gaugeStyle(.accessoryCircularCapacity)
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "book.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("Day \(entry.data.currentDay)/\(entry.data.totalDays)")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Text("\(Int(entry.data.readingProgress * 100))%")
+                    .font(.system(size: 15, weight: .bold))
+            }
+            .widgetAccentable()
+            
+            Gauge(value: entry.data.readingProgress) {
+                EmptyView()
+            }
+            .gaugeStyle(.accessoryLinearCapacity)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Label("Day \(entry.data.currentDay) • \(Int(entry.data.readingProgress * 100))%", systemImage: "book.fill")
+            .containerBackground(for: .widget) { }
     }
 }
 
@@ -269,21 +313,21 @@ struct StatBox: View {
     let title: String
     let value: String
     let icon: String
-    let theme: WidgetTheme
+    let styleConfig: WidgetStyleConfig
     
     var body: some View {
         VStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundColor(theme.secondaryTextColor)
+                .foregroundColor(styleConfig.secondaryTextColor)
             
             Text(value)
                 .font(.title3.bold())
-                .foregroundColor(theme.textColor)
+                .foregroundColor(styleConfig.textColor)
             
             Text(title)
                 .font(.caption2)
-                .foregroundColor(theme.secondaryTextColor)
+                .foregroundColor(styleConfig.secondaryTextColor)
         }
         .frame(maxWidth: .infinity)
     }
@@ -292,18 +336,35 @@ struct StatBox: View {
 #Preview(as: .systemSmall) {
     ReadingProgressWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
 }
 
 #Preview(as: .systemMedium) {
     ReadingProgressWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
 }
 
 #Preview(as: .systemLarge) {
     ReadingProgressWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    ReadingProgressWidget()
+} timeline: {
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    ReadingProgressWidget()
+} timeline: {
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    ReadingProgressWidget()
+} timeline: {
+    ReadingProgressEntry(date: Date(), data: .placeholder, configuration: ReadingProgressIntent())
+}

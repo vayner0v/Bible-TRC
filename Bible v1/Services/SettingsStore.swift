@@ -213,6 +213,75 @@ final class SettingsStore: ObservableObject {
         }
     }
     
+    // MARK: - Custom Theme Configuration
+    
+    /// Custom theme configuration data (JSON encoded)
+    @AppStorage("customThemeConfig") private var customThemeConfigData: Data = Data()
+    
+    /// User's custom theme configuration
+    var customThemeConfig: CustomThemeConfiguration {
+        get {
+            guard !customThemeConfigData.isEmpty,
+                  let decoded = try? JSONDecoder().decode(CustomThemeConfiguration.self, from: customThemeConfigData) else {
+                return .default
+            }
+            return decoded
+        }
+        set {
+            objectWillChange.send()
+            customThemeConfigData = (try? JSONEncoder().encode(newValue)) ?? Data()
+            // Notify ThemeManager to refresh
+            ThemeManager.shared.objectWillChange.send()
+        }
+    }
+    
+    /// Update custom theme accent color
+    func updateCustomThemeAccent(_ hex: String) {
+        var config = customThemeConfig
+        config.accentColorHex = hex
+        customThemeConfig = config
+    }
+    
+    /// Update custom theme temperature
+    func updateCustomThemeTemperature(_ temperature: Double) {
+        var config = customThemeConfig
+        config.neutralTemperature = temperature
+        customThemeConfig = config
+    }
+    
+    /// Update custom theme corner radius
+    func updateCustomThemeCornerRadius(_ radius: ThemeCornerRadius) {
+        var config = customThemeConfig
+        config.cornerRadius = radius
+        customThemeConfig = config
+    }
+    
+    /// Update custom theme contrast level
+    func updateCustomThemeContrast(_ level: ContrastLevel) {
+        var config = customThemeConfig
+        config.contrastLevel = level
+        customThemeConfig = config
+    }
+    
+    /// Update custom theme glass intensity
+    func updateCustomThemeGlass(_ intensity: GlassIntensity) {
+        var config = customThemeConfig
+        config.glassIntensity = intensity
+        customThemeConfig = config
+    }
+    
+    /// Update custom theme dark mode
+    func updateCustomThemeDarkMode(_ isDark: Bool) {
+        var config = customThemeConfig
+        config.isDarkMode = isDark
+        customThemeConfig = config
+    }
+    
+    /// Reset custom theme to defaults
+    func resetCustomTheme() {
+        customThemeConfig = .default
+    }
+    
     // MARK: - Audio Settings
     
     /// Preferred voice type (premium AI vs built-in)
@@ -287,6 +356,29 @@ final class SettingsStore: ObservableObject {
         set { notificationStyleRaw = newValue.rawValue }
     }
     
+    // MARK: - Privacy & Security
+    
+    /// Enable biometric lock
+    @AppStorage("privacy_biometric_lock_enabled") var biometricLockEnabled: Bool = false
+    
+    /// Lock app when going to background
+    @AppStorage("privacy_lock_on_background") var lockOnBackground: Bool = true
+    
+    /// Hide journal previews in widgets/notifications
+    @AppStorage("privacy_hide_journal_previews") var hideJournalPreviews: Bool = false
+    
+    /// Private prayer mode - blur until tapped
+    @AppStorage("privacy_private_prayer_mode") var privatePrayerMode: Bool = false
+    
+    /// Private reading mode - don't save history
+    @AppStorage("privacy_private_reading_mode") var privateReadingMode: Bool = false
+    
+    /// Enable anonymous usage analytics
+    @AppStorage("privacy_analytics_enabled") var analyticsEnabled: Bool = true
+    
+    /// Enable automatic crash reports
+    @AppStorage("privacy_crash_reports_enabled") var crashReportsEnabled: Bool = true
+    
     // MARK: - Data Export
     
     /// Last data export date
@@ -303,6 +395,36 @@ final class SettingsStore: ObservableObject {
     @AppStorage("settings_data_expanded") var dataExpanded: Bool = false
     @AppStorage("settings_about_expanded") var aboutExpanded: Bool = false
     @AppStorage("settings_developer_expanded") var developerExpanded: Bool = false
+    
+    // MARK: - Authentication Cache
+    
+    /// Last used authentication provider (apple, google, email)
+    @AppStorage("auth_last_provider") private var _lastUsedAuthProvider: String = ""
+    
+    var lastUsedAuthProvider: String? {
+        get { _lastUsedAuthProvider.isEmpty ? nil : _lastUsedAuthProvider }
+        set {
+            objectWillChange.send()
+            _lastUsedAuthProvider = newValue ?? ""
+        }
+    }
+    
+    /// Last signed-in email for display purposes
+    @AppStorage("auth_last_email") private var _lastSignedInEmail: String = ""
+    
+    var lastSignedInEmail: String? {
+        get { _lastSignedInEmail.isEmpty ? nil : _lastSignedInEmail }
+        set {
+            objectWillChange.send()
+            _lastSignedInEmail = newValue ?? ""
+        }
+    }
+    
+    /// Clear cached auth info (call on explicit sign-out if user wants fresh start)
+    func clearAuthCache() {
+        _lastUsedAuthProvider = ""
+        _lastSignedInEmail = ""
+    }
     
     // MARK: - Computed Effective Sizes
     

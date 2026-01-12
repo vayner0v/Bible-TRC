@@ -26,6 +26,7 @@ class FavoritesViewModel: ObservableObject {
     // MARK: - Services
     
     private let storageService = StorageService.shared
+    private let widgetService = WidgetDataService.shared
     
     // MARK: - Enums
     
@@ -108,6 +109,21 @@ class FavoritesViewModel: ObservableObject {
         favorites = storageService.favorites
         highlights = storageService.highlights
         notes = storageService.notes
+        syncFavoritesToWidget()
+    }
+    
+    /// Sync favorites to widget
+    private func syncFavoritesToWidget() {
+        let favoriteData = favorites.prefix(10).map { favorite in
+            FavoriteVerseData(
+                reference: favorite.fullReference,
+                text: favorite.text,
+                bookName: favorite.bookName,
+                chapter: favorite.chapter,
+                verse: favorite.verse
+            )
+        }
+        widgetService.updateFavorites(Array(favoriteData))
     }
     
     // MARK: - Favorites
@@ -116,11 +132,13 @@ class FavoritesViewModel: ObservableObject {
         let favorite = Favorite(from: reference)
         storageService.addFavorite(favorite)
         favorites = storageService.favorites
+        syncFavoritesToWidget()
     }
     
     func removeFavorite(_ favorite: Favorite) {
         storageService.removeFavorite(favorite)
         favorites = storageService.favorites
+        syncFavoritesToWidget()
     }
     
     func removeFavorites(at offsets: IndexSet) {
@@ -129,6 +147,7 @@ class FavoritesViewModel: ObservableObject {
             storageService.removeFavorite(sortedItems[index])
         }
         favorites = storageService.favorites
+        syncFavoritesToWidget()
     }
     
     func isFavorite(_ reference: VerseReference) -> Bool {
@@ -143,6 +162,7 @@ class FavoritesViewModel: ObservableObject {
     func toggleFavorite(_ reference: VerseReference) {
         storageService.toggleFavorite(reference)
         favorites = storageService.favorites
+        syncFavoritesToWidget()
     }
     
     // MARK: - Highlights

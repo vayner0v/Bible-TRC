@@ -29,7 +29,7 @@ enum JournalMood: String, Codable, CaseIterable, Identifiable {
         case .hopeful: return "Hopeful"
         case .reflective: return "Reflective"
         case .anxious: return "Anxious"
-        case .struggling: return "Struggling"
+        case .struggling: return "Sad"
         }
     }
     
@@ -220,4 +220,7 @@ enum MoodTrend: String {
         }
     }
 }
+
+
+
 

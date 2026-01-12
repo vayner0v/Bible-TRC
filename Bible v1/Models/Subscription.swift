@@ -27,7 +27,7 @@ enum SubscriptionTier: String, Codable {
     }
 }
 
-/// Product identifiers for App Store Connect
+/// Product identifiers for App Store Connect - Subscriptions
 enum SubscriptionProductID: String, CaseIterable {
     case monthlyPremium = "com.bibleapp.premium.monthly"
     case yearlyPremium = "com.bibleapp.premium.yearly"
@@ -55,6 +55,58 @@ enum SubscriptionProductID: String, CaseIterable {
     
     var tier: SubscriptionTier {
         return .premium
+    }
+}
+
+/// Product identifiers for one-time purchases
+enum OneTimePurchaseProductID: String, CaseIterable {
+    case themeStudio = "com.bibleapp.themestudio"
+    
+    var displayName: String {
+        switch self {
+        case .themeStudio: return "Theme Studio"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .themeStudio: return "Create your own custom theme with personalized colors and styles"
+        }
+    }
+    
+    /// Original price before sale
+    var originalPrice: String {
+        switch self {
+        case .themeStudio: return "$4.99"
+        }
+    }
+    
+    /// Current sale price
+    var salePrice: String {
+        switch self {
+        case .themeStudio: return "$3.33"
+        }
+    }
+    
+    /// Whether currently on sale
+    var isOnSale: Bool {
+        switch self {
+        case .themeStudio: return true
+        }
+    }
+    
+    /// Discount percentage
+    var discountPercentage: Int {
+        switch self {
+        case .themeStudio: return 33 // 33% off
+        }
+    }
+    
+    /// Icon for the product
+    var icon: String {
+        switch self {
+        case .themeStudio: return "paintpalette.fill"
+        }
     }
 }
 
@@ -116,11 +168,12 @@ struct PremiumFeature: Identifiable {
 /// Premium features available to subscribers
 struct PremiumFeatures {
     static let features: [PremiumFeature] = [
+        PremiumFeature(icon: "sparkles", title: "Unlimited TRC AI", description: "Unlimited AI Bible assistant conversations"),
         PremiumFeature(icon: "waveform.circle.fill", title: "AI Voices", description: "Natural, expressive narration powered by OpenAI"),
         PremiumFeature(icon: "infinity", title: "Unlimited Listening", description: "No daily limits on AI audio generation"),
-        PremiumFeature(icon: "bolt.fill", title: "Priority Generation", description: "Faster audio processing"),
+        PremiumFeature(icon: "bolt.fill", title: "Priority Generation", description: "Faster audio & AI processing"),
         PremiumFeature(icon: "arrow.down.circle.fill", title: "Offline Caching", description: "Save AI audio for offline listening"),
-        PremiumFeature(icon: "sparkles", title: "New Voices", description: "Access to new voices as they're added"),
+        PremiumFeature(icon: "brain.head.profile", title: "AI Memory", description: "TRC AI remembers your prayer requests & preferences"),
         PremiumFeature(icon: "heart.fill", title: "Support Development", description: "Help us keep improving the app")
     ]
 }

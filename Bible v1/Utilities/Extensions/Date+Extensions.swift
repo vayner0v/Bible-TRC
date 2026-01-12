@@ -40,9 +40,21 @@ extension Date {
         Calendar.current.isDateInYesterday(self)
     }
     
-    /// Check if date is this week
+    /// Check if date is this week (Monday-Sunday)
     var isThisWeek: Bool {
-        Calendar.current.isDate(self, equalTo: Date(), toGranularity: .weekOfYear)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let thisDate = calendar.startOfDay(for: self)
+        
+        // Get the Monday of the current week
+        let todayWeekday = calendar.component(.weekday, from: today)
+        let daysFromMonday = (todayWeekday - 2 + 7) % 7
+        guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: today),
+              let sunday = calendar.date(byAdding: .day, value: 6, to: monday) else {
+            return false
+        }
+        
+        return thisDate >= monday && thisDate <= sunday
     }
     
     /// Smart date string based on recency
@@ -60,6 +72,9 @@ extension Date {
         }
     }
 }
+
+
+
 
 
 

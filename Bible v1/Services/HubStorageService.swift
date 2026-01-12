@@ -43,6 +43,14 @@ class HubStorageService: ObservableObject {
         static let sermonNotes = "hub_sermon_notes"
         static let verseOfDayEntries = "hub_verse_of_day_entries"
         static let memorizedVerses = "hub_memorized_verses"
+        // Routine Keys
+        static let routineConfigurations = "hub_routine_configurations"
+        static let routineCompletions = "hub_routine_completions"
+        static let morningRoutineStreak = "hub_morning_routine_streak"
+        static let eveningRoutineStreak = "hub_evening_routine_streak"
+        static let combinedRoutineStreak = "hub_combined_routine_streak"
+        static let defaultMorningRoutineId = "hub_default_morning_routine_id"
+        static let defaultEveningRoutineId = "hub_default_evening_routine_id"
     }
     
     // MARK: - Published Properties
@@ -69,6 +77,15 @@ class HubStorageService: ObservableObject {
     @Published private(set) var sermonNotes: [SermonNote] = []
     @Published private(set) var verseOfDayEntries: [VerseOfDayEntry] = []
     @Published private(set) var memorizedVerses: [MemorizationSession] = []
+    
+    // Routine Published Properties
+    @Published private(set) var routineConfigurations: [RoutineConfiguration] = []
+    @Published private(set) var routineCompletions: [RoutineCompletion] = []
+    @Published private(set) var morningRoutineStreak: RoutineStreak = RoutineStreak()
+    @Published private(set) var eveningRoutineStreak: RoutineStreak = RoutineStreak()
+    @Published private(set) var combinedRoutineStreak: RoutineStreak = RoutineStreak()
+    @Published private(set) var defaultMorningRoutineId: UUID?
+    @Published private(set) var defaultEveningRoutineId: UUID?
     
     init() {
         loadAll()
@@ -106,8 +123,53 @@ class HubStorageService: ObservableObject {
             activeDevotionalId = UUID(uuidString: idString)
         }
         
+        // Routine Data Loading
+        routineConfigurations = load(key: Keys.routineConfigurations) ?? initializeDefaultRoutines()
+        routineCompletions = load(key: Keys.routineCompletions) ?? []
+        morningRoutineStreak = load(key: Keys.morningRoutineStreak) ?? RoutineStreak()
+        eveningRoutineStreak = load(key: Keys.eveningRoutineStreak) ?? RoutineStreak()
+        combinedRoutineStreak = load(key: Keys.combinedRoutineStreak) ?? RoutineStreak()
+        
+        if let idString = defaults.string(forKey: Keys.defaultMorningRoutineId) {
+            defaultMorningRoutineId = UUID(uuidString: idString)
+        }
+        if let idString = defaults.string(forKey: Keys.defaultEveningRoutineId) {
+            defaultEveningRoutineId = UUID(uuidString: idString)
+        }
+        
+        // Set default routine IDs if not set
+        if defaultMorningRoutineId == nil {
+            defaultMorningRoutineId = routineConfigurations.first { $0.mode == .morning && $0.isDefault }?.id
+        }
+        if defaultEveningRoutineId == nil {
+            defaultEveningRoutineId = routineConfigurations.first { $0.mode == .evening && $0.isDefault }?.id
+        }
+        
         // Check for expired active fasts
         checkActiveFastStatus()
+        
+        // Update streak status
+        updateRoutineStreakStatus()
+    }
+    
+    private func initializeDefaultRoutines() -> [RoutineConfiguration] {
+        RoutineStepLibrary.allDefaultRoutines
+    }
+    
+    private func updateRoutineStreakStatus() {
+        // Check if streaks are still active
+        if !morningRoutineStreak.isActive && morningRoutineStreak.currentStreak > 0 {
+            morningRoutineStreak.currentStreak = 0
+            save(morningRoutineStreak, key: Keys.morningRoutineStreak)
+        }
+        if !eveningRoutineStreak.isActive && eveningRoutineStreak.currentStreak > 0 {
+            eveningRoutineStreak.currentStreak = 0
+            save(eveningRoutineStreak, key: Keys.eveningRoutineStreak)
+        }
+        if !combinedRoutineStreak.isActive && combinedRoutineStreak.currentStreak > 0 {
+            combinedRoutineStreak.currentStreak = 0
+            save(combinedRoutineStreak, key: Keys.combinedRoutineStreak)
+        }
     }
     
     private var defaultTrackedHabits: [SpiritualHabit] {
@@ -256,16 +318,139 @@ class HubStorageService: ObservableObject {
         addGratitudeEntry(entry)
     }
     
-    func getWeeklyGratitudeSummary() -> WeeklyGratitudeSummary {
+    func removeGratitudeItem(at index: Int, from entry: GratitudeEntry) {
+        guard let entryIndex = gratitudeEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        var updatedEntry = entry
+        updatedEntry.removeItem(at: index)
+        gratitudeEntries[entryIndex] = updatedEntry
+        save(gratitudeEntries, key: Keys.gratitudeEntries)
+    }
+    
+    func updateGratitudeItem(at index: Int, in entry: GratitudeEntry, text: String, category: GratitudeCategory) {
+        guard let entryIndex = gratitudeEntries.firstIndex(where: { $0.id == entry.id }),
+              index < entry.items.count else { return }
+        var updatedEntry = entry
+        updatedEntry.items[index].text = text
+        updatedEntry.items[index].category = category
+        updatedEntry.modifiedAt = Date()
+        gratitudeEntries[entryIndex] = updatedEntry
+        save(gratitudeEntries, key: Keys.gratitudeEntries)
+    }
+    
+    func updateGratitudeReflection(_ entry: GratitudeEntry, reflection: String?) {
+        guard let entryIndex = gratitudeEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        var updatedEntry = entry
+        updatedEntry.reflection = reflection
+        updatedEntry.modifiedAt = Date()
+        gratitudeEntries[entryIndex] = updatedEntry
+        save(gratitudeEntries, key: Keys.gratitudeEntries)
+    }
+    
+    func deleteGratitudeEntry(_ entry: GratitudeEntry) {
+        gratitudeEntries.removeAll { $0.id == entry.id }
+        save(gratitudeEntries, key: Keys.gratitudeEntries)
+    }
+    
+    func getGratitudeEntry(for date: Date) -> GratitudeEntry? {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let weekStart = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        return gratitudeEntries.first { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+    
+    func getAllGratitudeEntries() -> [GratitudeEntry] {
+        gratitudeEntries.sorted { $0.date > $1.date }
+    }
+    
+    func getGratitudeEntries(for month: Date) -> [GratitudeEntry] {
+        let calendar = Calendar.current
+        return gratitudeEntries.filter { entry in
+            calendar.isDate(entry.date, equalTo: month, toGranularity: .month)
+        }.sorted { $0.date > $1.date }
+    }
+    
+    /// Get the Monday of the week containing the given date
+    private func getMondayOfWeek(for date: Date) -> Date {
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: date)
+        // weekday: 1 = Sunday, 2 = Monday, ..., 7 = Saturday
+        // Days to subtract to get to Monday: Sunday(1) -> 6, Monday(2) -> 0, Tuesday(3) -> 1, etc.
+        let daysFromMonday = (weekday - 2 + 7) % 7
+        return calendar.date(byAdding: .day, value: -daysFromMonday, to: calendar.startOfDay(for: date)) ?? date
+    }
+    
+    /// Get the Sunday of the week containing the given date
+    private func getSundayOfWeek(for date: Date) -> Date {
+        let monday = getMondayOfWeek(for: date)
+        return Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? date
+    }
+    
+    /// Get weekly gratitude summary using Monday-Sunday weeks
+    /// - Parameter weekOffset: 0 for current week, -1 for last week, etc.
+    func getWeeklyGratitudeSummary(weekOffset: Int = 0) -> WeeklyGratitudeSummary {
+        let calendar = Calendar.current
+        let today = Date()
         
-        let weekEntries = gratitudeEntries.filter { entry in
-            entry.date >= weekStart && entry.date <= today
+        // Get Monday of current week, then offset
+        let currentMonday = getMondayOfWeek(for: today)
+        guard let targetMonday = calendar.date(byAdding: .day, value: weekOffset * 7, to: currentMonday) else {
+            return WeeklyGratitudeSummary(weekStartDate: today, weekEndDate: today, entries: [])
         }
         
-        return WeeklyGratitudeSummary(weekStartDate: weekStart, entries: weekEntries)
+        let targetSunday = calendar.date(byAdding: .day, value: 6, to: targetMonday) ?? targetMonday
+        let weekEndOfDay = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: targetSunday) ?? targetSunday
+        
+        let weekEntries = gratitudeEntries.filter { entry in
+            entry.date >= targetMonday && entry.date <= weekEndOfDay
+        }
+        
+        return WeeklyGratitudeSummary(weekStartDate: targetMonday, weekEndDate: targetSunday, entries: weekEntries)
+    }
+    
+    /// Check if there are entries for weeks before a given offset
+    func hasGratitudeEntriesBeforeWeek(offset: Int) -> Bool {
+        let calendar = Calendar.current
+        let currentMonday = getMondayOfWeek(for: Date())
+        guard let targetMonday = calendar.date(byAdding: .day, value: (offset - 1) * 7, to: currentMonday) else {
+            return false
+        }
+        
+        // Check if any entries exist before the end of that week
+        let targetSunday = calendar.date(byAdding: .day, value: 6, to: targetMonday) ?? targetMonday
+        return gratitudeEntries.contains { $0.date <= targetSunday }
+    }
+    
+    /// Get the longest gratitude streak
+    var longestGratitudeStreak: Int {
+        guard !gratitudeEntries.isEmpty else { return 0 }
+        
+        let calendar = Calendar.current
+        let sortedDates = gratitudeEntries.map { calendar.startOfDay(for: $0.date) }.sorted()
+        
+        var longestStreak = 1
+        var currentStreak = 1
+        
+        for i in 1..<sortedDates.count {
+            let daysDiff = calendar.dateComponents([.day], from: sortedDates[i-1], to: sortedDates[i]).day ?? 0
+            if daysDiff == 1 {
+                currentStreak += 1
+                longestStreak = max(longestStreak, currentStreak)
+            } else if daysDiff > 1 {
+                currentStreak = 1
+            }
+        }
+        
+        return longestStreak
+    }
+    
+    /// Get gratitude activity for the last N days (for streak visualization)
+    func getGratitudeActivity(days: Int) -> [(date: Date, hasEntry: Bool, isComplete: Bool)] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        return (0..<days).reversed().compactMap { offset -> (Date, Bool, Bool)? in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            let entry = gratitudeEntries.first { calendar.isDate($0.date, inSameDayAs: date) }
+            return (date, entry != nil, entry?.isComplete ?? false)
+        }
     }
     
     var gratitudeStreak: Int {
@@ -364,7 +549,7 @@ class HubStorageService: ObservableObject {
         }
     }
     
-    // MARK: - Routines
+    // MARK: - Routines (Legacy)
     
     func getLastMorningRoutineDate() -> Date? {
         guard let timestamp = defaults.object(forKey: Keys.lastMorningRoutine) as? Double else { return nil }
@@ -392,6 +577,235 @@ class HubStorageService: ObservableObject {
     var didCompleteNightRoutineToday: Bool {
         guard let lastDate = getLastNightRoutineDate() else { return false }
         return Calendar.current.isDateInToday(lastDate)
+    }
+    
+    // MARK: - Routine Configurations
+    
+    /// Get all routine configurations
+    func getAllRoutineConfigurations() -> [RoutineConfiguration] {
+        routineConfigurations.sorted { config1, config2 in
+            // Default routines first, then by last used
+            if config1.isDefault != config2.isDefault {
+                return config1.isDefault
+            }
+            return (config1.lastUsedAt ?? .distantPast) > (config2.lastUsedAt ?? .distantPast)
+        }
+    }
+    
+    /// Get routines for a specific mode
+    func getRoutineConfigurations(for mode: RoutineMode) -> [RoutineConfiguration] {
+        routineConfigurations
+            .filter { $0.mode == mode || $0.mode == .anytime }
+            .sorted { ($0.lastUsedAt ?? .distantPast) > ($1.lastUsedAt ?? .distantPast) }
+    }
+    
+    /// Get a specific routine configuration
+    func getRoutineConfiguration(id: UUID) -> RoutineConfiguration? {
+        routineConfigurations.first { $0.id == id }
+    }
+    
+    /// Get the default routine for a mode
+    func getDefaultRoutine(for mode: RoutineMode) -> RoutineConfiguration? {
+        switch mode {
+        case .morning:
+            if let id = defaultMorningRoutineId {
+                return getRoutineConfiguration(id: id)
+            }
+        case .evening:
+            if let id = defaultEveningRoutineId {
+                return getRoutineConfiguration(id: id)
+            }
+        case .anytime:
+            break
+        }
+        return routineConfigurations.first { $0.mode == mode && $0.isDefault }
+    }
+    
+    /// Add a new routine configuration
+    func addRoutineConfiguration(_ config: RoutineConfiguration) {
+        routineConfigurations.append(config)
+        save(routineConfigurations, key: Keys.routineConfigurations)
+    }
+    
+    /// Update an existing routine configuration
+    func updateRoutineConfiguration(_ config: RoutineConfiguration) {
+        if let index = routineConfigurations.firstIndex(where: { $0.id == config.id }) {
+            routineConfigurations[index] = config
+            save(routineConfigurations, key: Keys.routineConfigurations)
+        }
+    }
+    
+    /// Delete a routine configuration
+    func deleteRoutineConfiguration(_ config: RoutineConfiguration) {
+        routineConfigurations.removeAll { $0.id == config.id }
+        save(routineConfigurations, key: Keys.routineConfigurations)
+        
+        // Clear default if deleted
+        if defaultMorningRoutineId == config.id {
+            defaultMorningRoutineId = nil
+            defaults.removeObject(forKey: Keys.defaultMorningRoutineId)
+        }
+        if defaultEveningRoutineId == config.id {
+            defaultEveningRoutineId = nil
+            defaults.removeObject(forKey: Keys.defaultEveningRoutineId)
+        }
+    }
+    
+    /// Set the default routine for a mode
+    func setDefaultRoutine(id: UUID, for mode: RoutineMode) {
+        switch mode {
+        case .morning:
+            defaultMorningRoutineId = id
+            defaults.set(id.uuidString, forKey: Keys.defaultMorningRoutineId)
+        case .evening:
+            defaultEveningRoutineId = id
+            defaults.set(id.uuidString, forKey: Keys.defaultEveningRoutineId)
+        case .anytime:
+            break
+        }
+    }
+    
+    /// Duplicate a routine configuration
+    func duplicateRoutineConfiguration(_ config: RoutineConfiguration, newName: String? = nil) -> RoutineConfiguration {
+        let newConfig = config.duplicate(newName: newName)
+        addRoutineConfiguration(newConfig)
+        return newConfig
+    }
+    
+    // MARK: - Routine Completions
+    
+    /// Record a routine completion with full data
+    func recordRoutineCompletion(_ completion: RoutineCompletion) {
+        routineCompletions.insert(completion, at: 0)
+        save(routineCompletions, key: Keys.routineCompletions)
+        
+        // Update legacy tracking
+        if completion.mode == .morning {
+            recordMorningRoutine()
+        } else if completion.mode == .evening {
+            recordNightRoutine()
+        }
+        
+        // Update configuration usage
+        if let index = routineConfigurations.firstIndex(where: { $0.id == completion.configurationId }) {
+            routineConfigurations[index].recordCompletion()
+            save(routineConfigurations, key: Keys.routineConfigurations)
+        }
+        
+        // Update streaks
+        updateRoutineStreaks(for: completion.mode, on: completion.date)
+    }
+    
+    /// Update routine streaks
+    private func updateRoutineStreaks(for mode: RoutineMode, on date: Date) {
+        // Update mode-specific streak
+        switch mode {
+        case .morning:
+            morningRoutineStreak.recordCompletion(on: date)
+            save(morningRoutineStreak, key: Keys.morningRoutineStreak)
+        case .evening:
+            eveningRoutineStreak.recordCompletion(on: date)
+            save(eveningRoutineStreak, key: Keys.eveningRoutineStreak)
+        case .anytime:
+            break
+        }
+        
+        // Update combined streak (any routine counts)
+        combinedRoutineStreak.recordCompletion(on: date)
+        save(combinedRoutineStreak, key: Keys.combinedRoutineStreak)
+    }
+    
+    /// Get completions for a specific date
+    func getRoutineCompletions(for date: Date) -> [RoutineCompletion] {
+        let calendar = Calendar.current
+        return routineCompletions.filter { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+    
+    /// Get completions for a date range
+    func getRoutineCompletions(from startDate: Date, to endDate: Date) -> [RoutineCompletion] {
+        routineCompletions.filter { $0.date >= startDate && $0.date <= endDate }
+    }
+    
+    /// Get completions for a specific mode
+    func getRoutineCompletions(mode: RoutineMode) -> [RoutineCompletion] {
+        routineCompletions.filter { $0.mode == mode }
+    }
+    
+    /// Check if a routine was completed today
+    func didCompleteRoutineToday(mode: RoutineMode) -> Bool {
+        let calendar = Calendar.current
+        return routineCompletions.contains { completion in
+            calendar.isDateInToday(completion.date) && completion.mode == mode
+        }
+    }
+    
+    /// Check if any routine was completed today
+    func didCompleteAnyRoutineToday() -> Bool {
+        let calendar = Calendar.current
+        return routineCompletions.contains { calendar.isDateInToday($0.date) }
+    }
+    
+    /// Get today's completions
+    func getTodayRoutineCompletions() -> [RoutineCompletion] {
+        let calendar = Calendar.current
+        return routineCompletions.filter { calendar.isDateInToday($0.date) }
+    }
+    
+    /// Get the most recent completion
+    func getLastRoutineCompletion() -> RoutineCompletion? {
+        routineCompletions.first
+    }
+    
+    /// Get the most recent completion for a mode
+    func getLastRoutineCompletion(mode: RoutineMode) -> RoutineCompletion? {
+        routineCompletions.first { $0.mode == mode }
+    }
+    
+    // MARK: - Routine Analytics
+    
+    /// Get analytics for a time period
+    func getRoutineAnalytics(period: RoutineAnalytics.AnalyticsPeriod) -> RoutineAnalytics {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        let startDate: Date
+        switch period {
+        case .week:
+            startDate = calendar.date(byAdding: .day, value: -7, to: today) ?? today
+        case .month:
+            startDate = calendar.date(byAdding: .month, value: -1, to: today) ?? today
+        case .allTime:
+            startDate = .distantPast
+        }
+        
+        let completions = getRoutineCompletions(from: startDate, to: Date())
+        return RoutineAnalytics(period: period, completions: completions)
+    }
+    
+    /// Get streak for a specific mode
+    func getRoutineStreak(for mode: RoutineMode) -> RoutineStreak {
+        switch mode {
+        case .morning: return morningRoutineStreak
+        case .evening: return eveningRoutineStreak
+        case .anytime: return combinedRoutineStreak
+        }
+    }
+    
+    /// Get the best (longest) current streak across all modes
+    var bestCurrentRoutineStreak: Int {
+        max(morningRoutineStreak.currentStreak, eveningRoutineStreak.currentStreak, combinedRoutineStreak.currentStreak)
+    }
+    
+    /// Get completion calendar data for visualization
+    func getRoutineCompletionCalendar(days: Int = 30) -> [(date: Date, completions: [RoutineCompletion])] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        return (0..<days).reversed().compactMap { offset -> (Date, [RoutineCompletion])? in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            let completions = getRoutineCompletions(for: date)
+            return (date, completions)
+        }
     }
     
     // MARK: - Daily Intention

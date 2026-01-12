@@ -23,6 +23,16 @@ struct JournalView: View {
             
             ScrollView {
                 VStack(spacing: 0) {
+                    // Top padding to match reader
+                    Color.clear.frame(height: 16)
+                    
+                    // Section Header
+                    JournalHeaderView(
+                        viewModel: viewModel,
+                        themeManager: themeManager
+                    )
+                    .padding(.bottom, 20)
+                    
                     // Expandable Calendar header
                     CompactCalendarHeader(
                         viewModel: viewModel,
@@ -614,6 +624,96 @@ struct JournalEntryCard: View {
         .background(themeManager.cardBackgroundColor)
         .cornerRadius(16)
         .shadow(color: themeManager.hubShadowColor, radius: 4, y: 2)
+    }
+}
+
+// MARK: - Journal Header View
+
+/// Beautiful header for the Journal tab matching the reader's chapter header style
+struct JournalHeaderView: View {
+    @ObservedObject var viewModel: JournalViewModel
+    @ObservedObject var themeManager: ThemeManager
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(themeManager.hubGlowColor.opacity(0.15))
+                    .frame(width: 56, height: 56)
+                
+                Image(systemName: "pencil.line")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(themeManager.hubGlowColor)
+            }
+            
+            // Title
+            Text("Journal")
+                .font(.system(size: 28, weight: .bold, design: .serif))
+                .foregroundColor(themeManager.textColor)
+            
+            // Stats row
+            HStack(spacing: 16) {
+                // Entry count
+                StatBadge(
+                    value: "\(viewModel.entries.count)",
+                    label: "entries",
+                    themeManager: themeManager
+                )
+                
+                // Streak
+                if viewModel.currentStreak > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flame.fill")
+                            .font(.caption)
+                        Text("\(viewModel.currentStreak) day streak")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.orange.opacity(0.12))
+                    .cornerRadius(12)
+                }
+            }
+            
+            // Decorative divider
+            HStack(spacing: 12) {
+                Rectangle()
+                    .fill(themeManager.dividerColor)
+                    .frame(height: 1)
+                
+                Circle()
+                    .fill(themeManager.hubGlowColor.opacity(0.5))
+                    .frame(width: 6, height: 6)
+                
+                Rectangle()
+                    .fill(themeManager.dividerColor)
+                    .frame(height: 1)
+            }
+            .padding(.horizontal, 60)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+}
+
+/// Small stat badge for header
+private struct StatBadge: View {
+    let value: String
+    let label: String
+    let themeManager: ThemeManager
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(value)
+                .font(.caption)
+                .fontWeight(.bold)
+            Text(label)
+                .font(.caption)
+        }
+        .foregroundColor(themeManager.secondaryTextColor)
     }
 }
 

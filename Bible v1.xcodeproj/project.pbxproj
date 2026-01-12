@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BF79F8742F0315B900F9B5C4 /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = BF79F8732F0315B900F9B5C4 /* AWSCognitoAuthPlugin */; };
+		BF79F8802F0400000000001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = BF79F87F2F0400000000001 /* Supabase */; };
+		BFW1DG3T2F0500000000004 /* Bible v1 Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BFW1DG3T2F0500000000005 /* Bible v1 Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,12 +26,34 @@
 			remoteGlobalIDString = BFB6CFEF2EF0B7A000A59C12;
 			remoteInfo = "Bible v1";
 		};
+		BFW1DG3T2F0500000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BFB6CFE82EF0B7A000A59C12 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BFW1DG3T2F0500000000002;
+			remoteInfo = "Bible v1 Widgets";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BFW1DG3T2F0500000000003 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BFW1DG3T2F0500000000004 /* Bible v1 Widgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		BFB6CFF02EF0B7A000A59C12 /* Bible v1.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Bible v1.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFB6CFFD2EF0B7A100A59C12 /* Bible v1Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Bible v1Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFB6D0072EF0B7A100A59C12 /* Bible v1UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Bible v1UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BFW1DG3T2F0500000000005 /* Bible v1 Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Bible v1 Widgets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +72,11 @@
 			path = "Bible v1UITests";
 			sourceTree = "<group>";
 		};
+		BFW1DG3T2F0500000000006 /* Bible v1 Widgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Bible v1 Widgets";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,7 +84,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BF79F8742F0315B900F9B5C4 /* AWSCognitoAuthPlugin in Frameworks */,
+				BF79F8802F0400000000001 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,23 +102,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BFW1DG3T2F0500000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		BF79F8722F0315B900F9B5C4 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 		BFB6CFE72EF0B7A000A59C12 = {
 			isa = PBXGroup;
 			children = (
 				BFB6CFF22EF0B7A000A59C12 /* Bible v1 */,
+				BFW1DG3T2F0500000000006 /* Bible v1 Widgets */,
 				BFB6D0002EF0B7A100A59C12 /* Bible v1Tests */,
 				BFB6D00A2EF0B7A100A59C12 /* Bible v1UITests */,
-				BF79F8722F0315B900F9B5C4 /* Frameworks */,
 				BFB6CFF12EF0B7A000A59C12 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +129,7 @@
 				BFB6CFF02EF0B7A000A59C12 /* Bible v1.app */,
 				BFB6CFFD2EF0B7A100A59C12 /* Bible v1Tests.xctest */,
 				BFB6D0072EF0B7A100A59C12 /* Bible v1UITests.xctest */,
+				BFW1DG3T2F0500000000005 /* Bible v1 Widgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -115,17 +144,19 @@
 				BFB6CFEC2EF0B7A000A59C12 /* Sources */,
 				BFB6CFED2EF0B7A000A59C12 /* Frameworks */,
 				BFB6CFEE2EF0B7A000A59C12 /* Resources */,
+				BFW1DG3T2F0500000000003 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BFW1DG3T2F0500000000008 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				BFB6CFF22EF0B7A000A59C12 /* Bible v1 */,
 			);
 			name = "Bible v1";
 			packageProductDependencies = (
-				BF79F8732F0315B900F9B5C4 /* AWSCognitoAuthPlugin */,
+				BF79F87F2F0400000000001 /* Supabase */,
 			);
 			productName = "Bible v1";
 			productReference = BFB6CFF02EF0B7A000A59C12 /* Bible v1.app */;
@@ -177,6 +208,28 @@
 			productReference = BFB6D0072EF0B7A100A59C12 /* Bible v1UITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		BFW1DG3T2F0500000000002 /* Bible v1 Widgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BFW1DG3T2F0500000000009 /* Build configuration list for PBXNativeTarget "Bible v1 Widgets" */;
+			buildPhases = (
+				BFW1DG3T2F050000000000A /* Sources */,
+				BFW1DG3T2F0500000000007 /* Frameworks */,
+				BFW1DG3T2F050000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BFW1DG3T2F0500000000006 /* Bible v1 Widgets */,
+			);
+			name = "Bible v1 Widgets";
+			packageProductDependencies = (
+			);
+			productName = "Bible v1 Widgets";
+			productReference = BFW1DG3T2F0500000000005 /* Bible v1 Widgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -198,6 +251,9 @@
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = BFB6CFEF2EF0B7A000A59C12;
 					};
+					BFW1DG3T2F0500000000002 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = BFB6CFEB2EF0B7A000A59C12 /* Build configuration list for PBXProject "Bible v1" */;
@@ -210,7 +266,7 @@
 			mainGroup = BFB6CFE72EF0B7A000A59C12;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				BF79F8712F0313E300F9B5C4 /* XCRemoteSwiftPackageReference "amplify-swift" */,
+				BF79F87E2F0400000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BFB6CFF12EF0B7A000A59C12 /* Products */;
@@ -218,6 +274,7 @@
 			projectRoot = "";
 			targets = (
 				BFB6CFEF2EF0B7A000A59C12 /* Bible v1 */,
+				BFW1DG3T2F0500000000002 /* Bible v1 Widgets */,
 				BFB6CFFC2EF0B7A100A59C12 /* Bible v1Tests */,
 				BFB6D0062EF0B7A100A59C12 /* Bible v1UITests */,
 			);
@@ -240,6 +297,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		BFB6D0052EF0B7A100A59C12 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BFW1DG3T2F050000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -270,6 +334,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BFW1DG3T2F050000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -282,6 +353,11 @@
 			isa = PBXTargetDependency;
 			target = BFB6CFEF2EF0B7A000A59C12 /* Bible v1 */;
 			targetProxy = BFB6D0082EF0B7A100A59C12 /* PBXContainerItemProxy */;
+		};
+		BFW1DG3T2F0500000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BFW1DG3T2F0500000000002 /* Bible v1 Widgets */;
+			targetProxy = BFW1DG3T2F0500000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -338,7 +414,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -395,7 +471,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -410,11 +486,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Bible v1/Bible v1.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 527H26NY5X;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "TRC - Bible";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Protect your spiritual journal and personal prayers with Face ID";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -444,11 +523,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Bible v1/Bible v1.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 527H26NY5X;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "TRC - Bible";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Protect your spiritual journal and personal prayers with Face ID";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -480,7 +562,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "vaynerov.Bible-v1Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -501,7 +583,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "vaynerov.Bible-v1Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -553,6 +635,60 @@
 			};
 			name = Release;
 		};
+		BFW1DG3T2F050000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Bible v1 Widgets/Bible v1 Widgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 527H26NY5X;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WidgetInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "vaynerov.Bible-v1.Widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BFW1DG3T2F050000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Bible v1 Widgets/Bible v1 Widgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 527H26NY5X;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WidgetInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "vaynerov.Bible-v1.Widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -592,24 +728,33 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		BFW1DG3T2F0500000000009 /* Build configuration list for PBXNativeTarget "Bible v1 Widgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BFW1DG3T2F050000000000C /* Debug */,
+				BFW1DG3T2F050000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		BF79F8712F0313E300F9B5C4 /* XCRemoteSwiftPackageReference "amplify-swift" */ = {
+		BF79F87E2F0400000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/aws-amplify/amplify-swift";
+			repositoryURL = "https://github.com/supabase/supabase-swift";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.53.2;
+				minimumVersion = 2.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		BF79F8732F0315B900F9B5C4 /* AWSCognitoAuthPlugin */ = {
+		BF79F87F2F0400000000001 /* Supabase */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = BF79F8712F0313E300F9B5C4 /* XCRemoteSwiftPackageReference "amplify-swift" */;
-			productName = AWSCognitoAuthPlugin;
+			package = BF79F87E2F0400000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

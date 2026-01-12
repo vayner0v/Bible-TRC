@@ -20,7 +20,7 @@ enum MoodLevel: Int, Codable, CaseIterable, Identifiable {
     
     var displayName: String {
         switch self {
-        case .struggling: return "Struggling"
+        case .struggling: return "Sad"
         case .low: return "Low"
         case .okay: return "Okay"
         case .good: return "Good"
@@ -213,6 +213,9 @@ struct WeeklyMoodSummary: Identifiable {
         return "\(formatter.string(from: weekStartDate)) - \(formatter.string(from: endDate))"
     }
 }
+
+
+
 
 
 

@@ -703,7 +703,7 @@ struct ColorPickerRow: View {
                     .frame(width: 28, height: 28)
                     .overlay(
                         Circle()
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            .stroke(themeManager.secondaryTextColor.opacity(0.3), lineWidth: 1)
                     )
                 
                 Image(systemName: "chevron.right")
@@ -738,7 +738,7 @@ struct ColorPickerSheet: View {
                     .frame(height: 80)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            .stroke(themeManager.secondaryTextColor.opacity(0.3), lineWidth: 1)
                     )
                 
                 // Preset colors
@@ -752,7 +752,7 @@ struct ColorPickerSheet: View {
                                 .frame(width: 44, height: 44)
                                 .overlay(
                                     Circle()
-                                        .stroke(color == presetColor ? themeManager.accentColor : Color.gray.opacity(0.3), lineWidth: color == presetColor ? 3 : 1)
+                                        .stroke(color == presetColor ? themeManager.accentColor : themeManager.secondaryTextColor.opacity(0.3), lineWidth: color == presetColor ? 3 : 1)
                                 )
                         }
                     }

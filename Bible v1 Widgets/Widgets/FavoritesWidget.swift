@@ -12,64 +12,56 @@ struct FavoritesWidget: Widget {
     let kind: String = "FavoritesWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: FavoritesProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: FavoritesIntent.self,
+            provider: FavoritesIntentProvider()
+        ) { entry in
             FavoritesWidgetView(entry: entry)
         }
         .configurationDisplayName("Favorites")
         .description("Quick access to saved verses")
-        .supportedFamilies([.systemMedium, .systemLarge])
-    }
-}
-
-struct FavoritesProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Update every hour
-        let nextUpdate = Date().addingTimeInterval(3600)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        .supportedFamilies([
+            .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct FavoritesWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: FavoritesEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
-    // Sample favorites for display
-    private let sampleFavorites = [
-        (reference: "John 3:16", text: "For God so loved the world..."),
-        (reference: "Psalm 23:1", text: "The Lord is my shepherd..."),
-        (reference: "Romans 8:28", text: "And we know that in all things..."),
-        (reference: "Philippians 4:13", text: "I can do all things through Christ...")
-    ]
+    // Use actual favorites from data
+    private var displayFavorites: [FavoriteVerseStorage] {
+        let maxToShow = entry.configuration.maxVersesToShow
+        return Array(entry.data.favoriteVerses.prefix(maxToShow))
+    }
     
     var body: some View {
-        switch family {
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemMedium:
+                mediumView
+            case .systemLarge:
+                largeView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://favorites"))
     }
     
     // MARK: - Medium View
@@ -84,29 +76,43 @@ struct FavoritesWidgetView: View {
                 Text("Favorites")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(theme.textColor)
+                    .foregroundColor(styleConfig.textColor)
                 
                 Spacer()
                 
-                Text("\(sampleFavorites.count) verses")
+                Text("\(entry.data.favoriteVerses.count) verses")
                     .font(.caption)
-                    .foregroundColor(theme.secondaryTextColor)
+                    .foregroundColor(styleConfig.secondaryTextColor)
             }
             
-            // Favorite items (show 2)
-            VStack(spacing: 6) {
-                ForEach(sampleFavorites.prefix(2), id: \.reference) { favorite in
-                    FavoriteRow(
-                        reference: favorite.reference,
-                        text: favorite.text,
-                        theme: theme,
-                        compact: true
-                    )
+            // Favorite items
+            if displayFavorites.isEmpty {
+                VStack(spacing: 4) {
+                    Image(systemName: "star")
+                        .font(.title2)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                    Text("No favorites yet")
+                        .font(.caption)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(displayFavorites.prefix(2), id: \.reference) { favorite in
+                        FavoriteRow(
+                            reference: favorite.reference,
+                            text: favorite.text,
+                            styleConfig: styleConfig,
+                            compact: true
+                        )
+                    }
                 }
             }
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Large View
@@ -128,28 +134,43 @@ struct FavoritesWidgetView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Favorites")
                         .font(.headline)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                     
-                    Text("\(sampleFavorites.count) saved verses")
+                    Text("\(entry.data.favoriteVerses.count) saved verses")
                         .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 Spacer()
             }
             
             Divider()
-                .background(theme.secondaryTextColor.opacity(0.3))
+                .background(styleConfig.secondaryTextColor.opacity(0.3))
             
-            // Favorite items (show up to 4)
-            VStack(spacing: 8) {
-                ForEach(sampleFavorites.prefix(4), id: \.reference) { favorite in
-                    FavoriteRow(
-                        reference: favorite.reference,
-                        text: favorite.text,
-                        theme: theme,
-                        compact: false
-                    )
+            // Favorite items
+            if displayFavorites.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "star")
+                        .font(.largeTitle)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                    Text("No favorites yet")
+                        .font(.subheadline)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                    Text("Tap to add your first favorite verse")
+                        .font(.caption)
+                        .foregroundColor(styleConfig.secondaryTextColor)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(displayFavorites.prefix(4), id: \.reference) { favorite in
+                        FavoriteRow(
+                            reference: favorite.reference,
+                            text: favorite.text,
+                            styleConfig: styleConfig,
+                            compact: false
+                        )
+                    }
                 }
             }
             
@@ -161,27 +182,86 @@ struct FavoritesWidgetView: View {
                 
                 Text("Tap to view all favorites")
                     .font(.caption)
-                    .foregroundColor(theme.accentColor)
+                    .foregroundColor(styleConfig.accentColor)
                 
                 Image(systemName: "chevron.right")
                     .font(.caption)
-                    .foregroundColor(theme.accentColor)
+                    .foregroundColor(styleConfig.accentColor)
                 
                 Spacer()
             }
             .padding(.vertical, 8)
-            .background(theme.accentColor.opacity(0.1))
+            .background(styleConfig.accentColor.opacity(0.1))
             .cornerRadius(8)
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            VStack(spacing: 0) {
+                Image(systemName: "star.fill")
+                    .font(.title3)
+                Text("\(entry.data.favoriteVerses.count)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+            }
+        }
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                if let firstFavorite = entry.data.favoriteVerses.first {
+                    Text(firstFavorite.reference)
+                        .font(.system(size: 11, weight: .semibold))
+                } else {
+                    Text("Favorites")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+            }
+            .widgetAccentable()
+            
+            if let firstFavorite = entry.data.favoriteVerses.first {
+                Text(firstFavorite.text)
+                    .font(.system(size: 12))
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.9)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                Text("No favorites yet")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Label(
+            entry.data.favoriteVerses.first?.reference ?? "\(entry.data.favoriteVerses.count) Favorites",
+            systemImage: "star.fill"
+        )
+        .containerBackground(for: .widget) { }
     }
 }
 
 struct FavoriteRow: View {
     let reference: String
     let text: String
-    let theme: WidgetTheme
+    let styleConfig: WidgetStyleConfig
     let compact: Bool
     
     var body: some View {
@@ -194,12 +274,12 @@ struct FavoriteRow: View {
                 Text(reference)
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(theme.textColor)
+                    .foregroundColor(styleConfig.textColor)
                 
                 if !compact {
                     Text(text)
                         .font(.caption2)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                         .lineLimit(1)
                 }
             }
@@ -208,11 +288,11 @@ struct FavoriteRow: View {
             
             Image(systemName: "chevron.right")
                 .font(.caption2)
-                .foregroundColor(theme.secondaryTextColor.opacity(0.5))
+                .foregroundColor(styleConfig.secondaryTextColor.opacity(0.5))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, compact ? 8 : 10)
-        .background(theme.cardBackground)
+        .background(styleConfig.cardBackground)
         .cornerRadius(8)
     }
 }
@@ -220,12 +300,29 @@ struct FavoriteRow: View {
 #Preview(as: .systemMedium) {
     FavoritesWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    FavoritesEntry(date: Date(), data: .placeholder, configuration: FavoritesIntent())
 }
 
 #Preview(as: .systemLarge) {
     FavoritesWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    FavoritesEntry(date: Date(), data: .placeholder, configuration: FavoritesIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    FavoritesWidget()
+} timeline: {
+    FavoritesEntry(date: Date(), data: .placeholder, configuration: FavoritesIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    FavoritesWidget()
+} timeline: {
+    FavoritesEntry(date: Date(), data: .placeholder, configuration: FavoritesIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    FavoritesWidget()
+} timeline: {
+    FavoritesEntry(date: Date(), data: .placeholder, configuration: FavoritesIntent())
+}

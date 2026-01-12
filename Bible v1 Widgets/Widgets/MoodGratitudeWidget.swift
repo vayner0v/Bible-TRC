@@ -12,58 +12,50 @@ struct MoodGratitudeWidget: Widget {
     let kind: String = "MoodGratitudeWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: MoodGratitudeProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: MoodGratitudeIntent.self,
+            provider: MoodGratitudeIntentProvider()
+        ) { entry in
             MoodGratitudeWidgetView(entry: entry)
         }
         .configurationDisplayName("Mood & Gratitude")
         .description("Check in with mood & gratitude")
-        .supportedFamilies([.systemSmall, .systemMedium])
-    }
-}
-
-struct MoodGratitudeProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Update every hour
-        let nextUpdate = Date().addingTimeInterval(3600)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        .supportedFamilies([
+            .systemSmall, .systemMedium,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct MoodGratitudeWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: MoodGratitudeEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
-    private let moodEmojis = ["😊", "😌", "🙏", "😔", "😊"]
-    
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemSmall:
+                smallView
+            case .systemMedium:
+                mediumView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://mood-gratitude"))
     }
     
     // MARK: - Small View
@@ -92,10 +84,10 @@ struct MoodGratitudeWidgetView: View {
                     Label("Gratitude done", systemImage: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundColor(.green)
-                } else {
+                } else if entry.configuration.showGratitudePrompt {
                     Text("Tap to check in")
                         .font(.caption2)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -113,7 +105,9 @@ struct MoodGratitudeWidgetView: View {
             }
         }
         .padding(12)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
     }
     
     // MARK: - Medium View
@@ -133,7 +127,7 @@ struct MoodGratitudeWidgetView: View {
                 
                 Text("Today's Mood")
                     .font(.caption)
-                    .foregroundColor(theme.secondaryTextColor)
+                    .foregroundColor(styleConfig.secondaryTextColor)
             }
             
             Divider()
@@ -148,25 +142,27 @@ struct MoodGratitudeWidgetView: View {
                     Text("Mood & Gratitude")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(theme.textColor)
+                        .foregroundColor(styleConfig.textColor)
                 }
                 
                 if entry.data.todayGratitudeCompleted {
                     Label("Gratitude completed today!", systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundColor(.green)
-                } else {
+                } else if entry.configuration.showGratitudePrompt {
                     Text("What are you grateful for today?")
                         .font(.caption)
-                        .foregroundColor(theme.secondaryTextColor)
+                        .foregroundColor(styleConfig.secondaryTextColor)
                 }
                 
                 HStack(spacing: 8) {
-                    // Mood history
-                    HStack(spacing: 4) {
-                        ForEach(moodEmojis, id: \.self) { emoji in
-                            Text(emoji)
-                                .font(.caption2)
+                    // Mood history from actual data
+                    if entry.configuration.showMoodHistory {
+                        HStack(spacing: 4) {
+                            ForEach(entry.data.moodHistory.prefix(5), id: \.self) { emoji in
+                                Text(emoji)
+                                    .font(.caption2)
+                            }
                         }
                     }
                     
@@ -186,19 +182,90 @@ struct MoodGratitudeWidgetView: View {
             Spacer()
         }
         .padding(16)
-        .widgetContainer(theme: theme)
+        .containerBackground(for: .widget) {
+            styleConfig.background
+        }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            Text(entry.data.lastMood)
+                .font(.title)
+        }
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        HStack(spacing: 0) {
+            Text(entry.data.lastMood)
+                .font(.system(size: 44))
+            
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("Today's Mood")
+                    .font(.system(size: 15, weight: .bold))
+                    .widgetAccentable()
+                
+                if entry.data.gratitudeStreak > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 13))
+                        Text("\(entry.data.gratitudeStreak) day streak")
+                            .font(.system(size: 13))
+                    }
+                    .foregroundStyle(.secondary)
+                } else if entry.data.todayGratitudeCompleted {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                        Text("Completed")
+                            .font(.system(size: 13))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Text("\(entry.data.lastMood) \(entry.data.gratitudeStreak > 0 ? "• \(entry.data.gratitudeStreak) day streak" : "")")
+            .containerBackground(for: .widget) { }
     }
 }
 
 #Preview(as: .systemSmall) {
     MoodGratitudeWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    MoodGratitudeEntry(date: Date(), data: .placeholder, configuration: MoodGratitudeIntent())
 }
 
 #Preview(as: .systemMedium) {
     MoodGratitudeWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    MoodGratitudeEntry(date: Date(), data: .placeholder, configuration: MoodGratitudeIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    MoodGratitudeWidget()
+} timeline: {
+    MoodGratitudeEntry(date: Date(), data: .placeholder, configuration: MoodGratitudeIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    MoodGratitudeWidget()
+} timeline: {
+    MoodGratitudeEntry(date: Date(), data: .placeholder, configuration: MoodGratitudeIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    MoodGratitudeWidget()
+} timeline: {
+    MoodGratitudeEntry(date: Date(), data: .placeholder, configuration: MoodGratitudeIntent())
+}

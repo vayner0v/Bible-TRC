@@ -2,8 +2,8 @@
 //  DailyRoutineView.swift
 //  Bible v1
 //
-//  Unified Daily Routine - Time-aware morning/evening spiritual practice
-//  with customizable steps
+//  Redesigned Daily Routine - Journaling-aesthetic spiritual practice
+//  with customizable steps, streak tracking, and Hub integration
 //
 
 import SwiftUI
@@ -11,6 +11,7 @@ import SwiftUI
 struct DailyRoutineView: View {
     @ObservedObject var viewModel: HubViewModel
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var accessibility = AccessibilityManager.shared
     @Environment(\.dismiss) private var dismiss
     
     // MARK: - State
@@ -21,20 +22,30 @@ struct DailyRoutineView: View {
     @State private var showCompletion = false
     @State private var showStepEditor = false
     @State private var showModeSelector = false
+    @State private var showRoutineManager = false
+    @State private var routineStartTime: Date = Date()
     
     // Step-specific state
     @State private var intentionText = ""
     @State private var gratitudeItems: [String] = ["", "", ""]
-    @State private var reflectionText = ""
+    @State private var reflectionTexts: [UUID: String] = [:]  // Per-step reflection storage
     @State private var isBreathing = false
     @State private var breathPhase: BreathPhase = .inhale
     @State private var breathTimer: Timer?
     @State private var breathCycleCount = 0
     
+    // Keyboard management
+    @FocusState private var isAnyFieldFocused: Bool
+    
+    // Mood tracking
+    @State private var moodAtStart: MoodLevel?
+    @State private var moodAtEnd: MoodLevel?
+    @State private var showStartMoodPicker = true
+    
     // MARK: - Computed Properties
     
     private var configuration: RoutineConfiguration {
-        selectedConfiguration ?? (currentMode == .morning ? RoutineStepLibrary.defaultMorningRoutine : RoutineStepLibrary.defaultEveningRoutine)
+        selectedConfiguration ?? viewModel.getDefaultRoutine(for: currentMode) ?? RoutineStepLibrary.defaultMorningRoutine
     }
     
     private var enabledSteps: [RoutineStep] {
@@ -47,7 +58,11 @@ struct DailyRoutineView: View {
     }
     
     private var isRoutineComplete: Bool {
-        currentMode == .morning ? viewModel.didCompleteMorningRoutine : viewModel.didCompleteNightRoutine
+        viewModel.didCompleteRoutineToday(mode: currentMode)
+    }
+    
+    private var routineStreak: RoutineStreak {
+        viewModel.getRoutineStreak(for: currentMode)
     }
     
     private var progress: Double {
@@ -60,11 +75,17 @@ struct DailyRoutineView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Dynamic gradient background
-                backgroundGradient
+                // Journal-style gradient background
+                journalBackground
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        hideKeyboard()
+                    }
                 
-                if isRoutineComplete && !showCompletion {
+                if showStartMoodPicker && !isRoutineComplete {
+                    moodCheckInView
+                } else if isRoutineComplete && !showCompletion {
                     alreadyCompletedView
                 } else if showCompletion {
                     completionView
@@ -72,22 +93,53 @@ struct DailyRoutineView: View {
                     routineContent
                 }
             }
-            .navigationTitle("Daily Routine")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
+                    Button {
                         breathTimer?.invalidate()
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.Journal.mutedText)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color.Journal.cardBackground))
                     }
+                }
+                
+                ToolbarItem(placement: .principal) {
+                    Text(configuration.name)
+                        .font(accessibility.headingFont(size: 17))
+                        .foregroundColor(Color.Journal.inkBrown)
                 }
                 
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        // Only show "Update Mood" when not already on mood picker and not completed
+                        if !showStartMoodPicker && !showCompletion && !isRoutineComplete {
+                            Button {
+                                withAnimation(.spring(response: 0.4)) {
+                                    showStartMoodPicker = true
+                                }
+                            } label: {
+                                Label("Update Mood", systemImage: "face.smiling")
+                            }
+                            
+                            Divider()
+                        }
+                        
                         Button {
                             showModeSelector = true
                         } label: {
                             Label("Switch Mode", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        
+                        Button {
+                            showRoutineManager = true
+                        } label: {
+                            Label("My Routines", systemImage: "list.bullet")
                         }
                         
                         Button {
@@ -96,10 +148,16 @@ struct DailyRoutineView: View {
                             Label("Customize Steps", systemImage: "slider.horizontal.3")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .foregroundColor(currentMode.accentColor)
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.Journal.mutedText)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color.Journal.cardBackground))
                     }
                 }
+            }
+            .onAppear {
+                routineStartTime = Date()
             }
             .onDisappear {
                 breathTimer?.invalidate()
@@ -110,15 +168,27 @@ struct DailyRoutineView: View {
                     mode: currentMode,
                     onSave: { newConfig in
                         selectedConfiguration = newConfig
+                        viewModel.updateRoutineConfiguration(newConfig)
                     }
                 )
             }
+            .sheet(isPresented: $showRoutineManager) {
+                RoutineManagerView(viewModel: viewModel, selectedConfiguration: $selectedConfiguration)
+            }
             .confirmationDialog("Choose Routine", isPresented: $showModeSelector, titleVisibility: .visible) {
                 Button("Morning Routine") {
-                    withAnimation { currentMode = .morning }
+                    withAnimation(.spring(response: 0.4)) {
+                        currentMode = .morning
+                        selectedConfiguration = viewModel.getDefaultRoutine(for: .morning)
+                        currentStepIndex = 0
+                    }
                 }
                 Button("Evening Routine") {
-                    withAnimation { currentMode = .evening }
+                    withAnimation(.spring(response: 0.4)) {
+                        currentMode = .evening
+                        selectedConfiguration = viewModel.getDefaultRoutine(for: .evening)
+                        currentStepIndex = 0
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             }
@@ -127,13 +197,132 @@ struct DailyRoutineView: View {
     
     // MARK: - Background
     
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: currentMode.gradient + [themeManager.backgroundColor],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+    private var journalBackground: some View {
+        ZStack {
+            // Base paper color
+            Color.Journal.paper
+            
+            // Mode-specific gradient
+            LinearGradient.journalGradient(for: currentMode)
+                .opacity(0.6)
+            
+            // Subtle texture
+            GeometryReader { geo in
+                Canvas { context, size in
+                    // Add subtle noise pattern
+                    for _ in 0..<100 {
+                        let x = CGFloat.random(in: 0...size.width)
+                        let y = CGFloat.random(in: 0...size.height)
+                        let rect = CGRect(x: x, y: y, width: 1, height: 1)
+                        context.fill(Path(ellipseIn: rect), with: .color(Color.Journal.sepia.opacity(0.02)))
+                    }
+                }
+            }
+        }
         .animation(.easeInOut(duration: 0.5), value: currentMode)
+    }
+    
+    // MARK: - Mood Check-In View
+    
+    private var moodCheckInView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            
+            // Header - centered
+            VStack(spacing: 8) {
+                Image(systemName: "face.smiling")
+                    .font(.system(size: 36))
+                    .foregroundColor(currentMode.accentColor)
+                
+                Text("How are you feeling?")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .foregroundColor(themeManager.textColor)
+                
+                Text("Check in before starting")
+                    .font(.subheadline)
+                    .foregroundColor(themeManager.secondaryTextColor)
+            }
+            .frame(maxWidth: .infinity)
+            
+            // Mood options - centered grid
+            HStack(spacing: 8) {
+                ForEach(MoodLevel.allCases, id: \.self) { mood in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            moodAtStart = mood
+                        }
+                        HapticManager.shared.selection()
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(mood.emoji)
+                                .font(.system(size: 26))
+                            
+                            Text(mood.displayName)
+                                .font(.caption2)
+                                .fontWeight(moodAtStart == mood ? .semibold : .regular)
+                                .foregroundColor(moodAtStart == mood ? currentMode.accentColor : themeManager.secondaryTextColor)
+                        }
+                        .frame(width: 58)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(moodAtStart == mood ? currentMode.accentColor.opacity(0.15) : themeManager.cardBackgroundColor)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(moodAtStart == mood ? currentMode.accentColor : Color.clear, lineWidth: 1.5)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: moodAtStart)
+                }
+            }
+            .padding(.horizontal, 16)
+            
+            Spacer()
+            
+            // Continue buttons
+            VStack(spacing: 8) {
+                Button {
+                    HapticManager.shared.lightImpact()
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        showStartMoodPicker = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(moodAtStart != nil ? "Continue" : "Skip")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        
+                        if moodAtStart != nil {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(
+                                moodAtStart != nil
+                                    ? currentMode.accentColor
+                                    : themeManager.secondaryTextColor.opacity(0.6)
+                            )
+                    )
+                }
+                .animation(.easeInOut(duration: 0.2), value: moodAtStart)
+                
+                if moodAtStart == nil {
+                    Text("Update anytime from the menu")
+                        .font(.caption2)
+                        .foregroundColor(themeManager.secondaryTextColor)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+        }
     }
     
     // MARK: - Already Completed View
@@ -142,26 +331,18 @@ struct DailyRoutineView: View {
         VStack(spacing: 24) {
             Spacer()
             
-            Image(systemName: currentMode == .morning ? "sunrise.fill" : "moon.stars.fill")
-                .font(.system(size: 70))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: currentMode == .morning ? [.orange, .yellow] : [.indigo, .teal],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            // Completion stamp
+            JournalCompletionStamp(mode: currentMode)
             
             Text("\(currentMode.displayName) Routine Complete!")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(themeManager.textColor)
+                .font(accessibility.headingFont(size: 22))
+                .foregroundColor(Color.Journal.inkBrown)
             
             Text(currentMode == .morning
                  ? "You've already completed your morning routine today. Come back tomorrow for a fresh start!"
                  : "You've already completed your evening reflection. Rest well and let tomorrow be a new day of grace.")
-                .font(.subheadline)
-                .foregroundColor(themeManager.secondaryTextColor)
+                .font(accessibility.bodyFont())
+                .foregroundColor(Color.Journal.mutedText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             
@@ -169,447 +350,158 @@ struct DailyRoutineView: View {
                 intentionCard(intention)
             }
             
+            // Streak info
+            if routineStreak.currentStreak > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(.orange)
+                    
+                    Text("\(routineStreak.currentStreak)-day streak!")
+                        .font(accessibility.bodyFont(size: 15))
+                        .fontWeight(.medium)
+                        .foregroundColor(Color.Journal.inkBrown)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(Color.orange.opacity(0.1))
+                )
+            }
+            
             Spacer()
             
             // Option to switch mode
             if !otherModeComplete {
                 Button {
-                    withAnimation {
+                    withAnimation(accessibility.standardAnimation ?? .spring(response: 0.4)) {
                         currentMode = currentMode == .morning ? .evening : .morning
+                        selectedConfiguration = viewModel.getDefaultRoutine(for: currentMode)
                     }
                 } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: currentMode == .morning ? "moon.stars.fill" : "sunrise.fill")
                         Text("Start \(currentMode == .morning ? "Evening" : "Morning") Routine")
                     }
-                    .font(.subheadline)
+                    .font(accessibility.bodyFont(size: 15))
                     .fontWeight(.medium)
-                    .foregroundColor(currentMode.accentColor)
-                    .padding()
-                    .background(currentMode.accentColor.opacity(0.1))
-                    .cornerRadius(12)
+                    .foregroundColor(currentMode == .morning ? Color.Journal.Evening.primary : Color.Journal.Morning.primary)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill((currentMode == .morning ? Color.Journal.Evening.primary : Color.Journal.Morning.primary).opacity(0.1))
+                    )
                 }
-                .padding(.bottom, 8)
             }
             
             Button {
                 dismiss()
             } label: {
                 Text("Done")
-                    .font(.headline)
+                    .font(accessibility.headingFont(size: 17))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(currentMode.accentColor)
-                    .cornerRadius(14)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(currentMode.accentColor)
+                    )
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
-        .padding()
     }
     
     private var otherModeComplete: Bool {
-        currentMode == .morning ? viewModel.didCompleteNightRoutine : viewModel.didCompleteMorningRoutine
+        currentMode == .morning ? viewModel.didCompleteRoutineToday(mode: .evening) : viewModel.didCompleteRoutineToday(mode: .morning)
     }
     
     private func intentionCard(_ intention: String) -> some View {
-        VStack(spacing: 8) {
-            Text("Today's Intention")
-                .font(.caption)
-                .foregroundColor(themeManager.secondaryTextColor)
-            
-            Text("\"\(intention)\"")
-                .font(.headline)
-                .foregroundColor(currentMode.accentColor)
-                .multilineTextAlignment(.center)
+        RoutineJournalCard(mode: currentMode) {
+            VStack(spacing: 8) {
+                Text("Today's Intention")
+                    .font(accessibility.captionFont())
+                    .foregroundColor(Color.Journal.mutedText)
+                
+                Text("\"\(intention)\"")
+                    .font(accessibility.headingFont(size: 17))
+                    .foregroundColor(currentMode.accentColor)
+                    .multilineTextAlignment(.center)
+            }
         }
-        .padding()
-        .background(themeManager.cardBackgroundColor)
-        .cornerRadius(12)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - Routine Content
     
     private var routineContent: some View {
         VStack(spacing: 0) {
-            // Mode indicator & progress
-            routineHeader
-            
-            // Progress ring and step content
-            stepContentArea
-            
-            // Navigation buttons
-            navigationButtons
-        }
-    }
-    
-    private var routineHeader: some View {
-        VStack(spacing: 12) {
-            // Mode badge
-            HStack {
-                Image(systemName: currentMode.icon)
-                Text(currentMode.displayName)
-                    .fontWeight(.medium)
-            }
-            .font(.subheadline)
-            .foregroundColor(currentMode.accentColor)
+            // Progress header
+            RoutineProgressHeader(
+                configuration: configuration,
+                currentStepIndex: currentStepIndex,
+                streak: routineStreak
+            )
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(currentMode.accentColor.opacity(0.15))
-            .cornerRadius(20)
+            .padding(.top, 8)
             
-            // Progress indicator
-            HStack(spacing: 8) {
-                ForEach(0..<enabledSteps.count, id: \.self) { index in
-                    Capsule()
-                        .fill(index <= currentStepIndex ? currentMode.accentColor : themeManager.dividerColor)
-                        .frame(height: 4)
-                }
-            }
-            .padding(.horizontal)
-        }
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-    }
-    
-    private var stepContentArea: some View {
-        GeometryReader { geometry in
+            // Step content
             TabView(selection: $currentStepIndex) {
                 ForEach(Array(enabledSteps.enumerated()), id: \.element.id) { index, step in
-                    stepView(for: step)
-                        .tag(index)
+                    RoutineStepPage(
+                        step: step,
+                        stepNumber: index + 1,
+                        totalSteps: enabledSteps.count,
+                        mode: currentMode,
+                        intentionText: $intentionText,
+                        gratitudeItems: $gratitudeItems,
+                        reflectionText: reflectionBinding(for: step.id),
+                        isBreathing: $isBreathing,
+                        breathPhase: $breathPhase,
+                        breathCycleCount: $breathCycleCount,
+                        onStartBreathing: {
+                            if case .breathing(let inhale, let hold, let exhale, let cycles) = step.content {
+                                startBreathing(inhale: inhale, hold: hold, exhale: exhale, cycles: cycles)
+                            }
+                        }
+                    )
+                    .tag(index)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-        }
-    }
-    
-    @ViewBuilder
-    private func stepView(for step: RoutineStep) -> some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Step icon with glow
-                ZStack {
-                    Circle()
-                        .fill(step.category.color.opacity(0.2))
-                        .frame(width: 90, height: 90)
-                        .blur(radius: 20)
-                    
-                    Circle()
-                        .fill(step.category.color.opacity(0.15))
-                        .frame(width: 70, height: 70)
-                    
-                    Image(systemName: step.category.icon)
-                        .font(.system(size: 32))
-                        .foregroundColor(step.category.color)
-                }
-                
-                // Title and description
-                VStack(spacing: 8) {
-                    Text(step.title)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(themeManager.textColor)
-                    
-                    Text(step.description)
-                        .font(.subheadline)
-                        .foregroundColor(themeManager.secondaryTextColor)
-                        .multilineTextAlignment(.center)
-                    
-                    if let duration = step.formattedDuration {
-                        Text(duration)
-                            .font(.caption)
-                            .foregroundColor(step.category.color)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .background(step.category.color.opacity(0.1))
-                            .cornerRadius(8)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        hideKeyboard()
                     }
-                }
-                
-                // Step-specific content
-                stepContent(for: step)
-            }
-            .padding()
-            .padding(.bottom, 100)
-        }
-    }
-    
-    @ViewBuilder
-    private func stepContent(for step: RoutineStep) -> some View {
-        switch step.content {
-        case .prayerPrompts(let prompts):
-            prayerPromptsContent(prompts, color: step.category.color)
-            
-        case .scripture(let reference, let text):
-            scriptureContent(reference: reference, text: text)
-            
-        case .breathing(let inhale, let hold, let exhale, let cycles):
-            breathingContent(inhale: inhale, hold: hold, exhale: exhale, cycles: cycles)
-            
-        case .gratitudePrompt(let count):
-            gratitudeContent(count: count)
-            
-        case .intentionSetter:
-            intentionContent()
-            
-        case .reflectionQuestions(let questions):
-            reflectionContent(questions: questions)
-            
-        case .text(let text):
-            Text(text)
-                .font(.body)
-                .foregroundColor(themeManager.textColor)
-                .multilineTextAlignment(.center)
-            
-        case .custom(let instructions):
-            customContent(instructions: instructions)
-        }
-    }
-    
-    // MARK: - Step Content Views
-    
-    private func prayerPromptsContent(_ prompts: [String], color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(prompts, id: \.self) { prompt in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundColor(color)
-                        .padding(.top, 6)
-                    
-                    Text(prompt)
-                        .font(.subheadline)
-                        .foregroundColor(themeManager.textColor)
+                    .font(accessibility.bodyFont())
+                    .fontWeight(.medium)
                 }
             }
-        }
-        .padding()
-        .background(themeManager.cardBackgroundColor)
-        .cornerRadius(14)
-    }
-    
-    private func scriptureContent(reference: String, text: String) -> some View {
-        VStack(spacing: 16) {
-            Text(text)
-                .font(.title3)
-                .fontWeight(.medium)
-                .foregroundColor(themeManager.textColor)
-                .multilineTextAlignment(.center)
-                .lineSpacing(6)
             
-            Text("— \(reference)")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(currentMode.accentColor)
-        }
-        .padding(24)
-        .background(currentMode.accentColor.opacity(0.1))
-        .cornerRadius(16)
-    }
-    
-    private func breathingContent(inhale: Int, hold: Int, exhale: Int, cycles: Int) -> some View {
-        VStack(spacing: 24) {
-            // Breathing circle
-            ZStack {
-                Circle()
-                    .stroke(themeManager.dividerColor, lineWidth: 4)
-                    .frame(width: 180, height: 180)
-                
-                Circle()
-                    .fill(currentMode.accentColor.opacity(0.2))
-                    .frame(width: breathCircleSize, height: breathCircleSize)
-                    .animation(.easeInOut(duration: Double(currentBreathDuration)), value: breathPhase)
-                
-                VStack(spacing: 8) {
-                    Text(isBreathing ? breathPhase.instruction : "Start")
-                        .font(.headline)
-                        .foregroundColor(currentMode.accentColor)
-                    
-                    if !isBreathing {
-                        Text("Tap to begin")
-                            .font(.caption)
-                            .foregroundColor(themeManager.secondaryTextColor)
-                    } else {
-                        Text("\(breathCycleCount)/\(cycles)")
-                            .font(.caption)
-                            .foregroundColor(themeManager.secondaryTextColor)
+            // Navigation buttons
+            RoutineNavigationButtons(
+                currentStepIndex: currentStepIndex,
+                totalSteps: enabledSteps.count,
+                mode: currentMode,
+                canProceed: true,
+                onBack: {
+                    withAnimation(.spring(response: 0.3)) {
+                        currentStepIndex = max(0, currentStepIndex - 1)
                     }
-                }
-            }
-            .onTapGesture {
-                if !isBreathing {
-                    startBreathing(inhale: inhale, hold: hold, exhale: exhale, cycles: cycles)
-                }
-            }
-        }
-    }
-    
-    private var breathCircleSize: CGFloat {
-        switch breathPhase {
-        case .inhale: return 180
-        case .hold: return 180
-        case .exhale: return 100
-        }
-    }
-    
-    private var currentBreathDuration: Int {
-        switch breathPhase {
-        case .inhale: return 4
-        case .hold: return 4
-        case .exhale: return 4
-        }
-    }
-    
-    private func gratitudeContent(count: Int) -> some View {
-        VStack(spacing: 12) {
-            ForEach(0..<count, id: \.self) { index in
-                HStack(spacing: 12) {
-                    Text("\(index + 1)")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .frame(width: 24, height: 24)
-                        .background(Color.pink)
-                        .clipShape(Circle())
-                    
-                    TextField("I'm grateful for...", text: gratitudeBinding(for: index))
-                        .textFieldStyle(.plain)
-                        .padding()
-                        .background(themeManager.cardBackgroundColor)
-                        .cornerRadius(10)
-                }
-            }
-        }
-    }
-    
-    private func gratitudeBinding(for index: Int) -> Binding<String> {
-        Binding(
-            get: {
-                index < gratitudeItems.count ? gratitudeItems[index] : ""
-            },
-            set: { newValue in
-                while gratitudeItems.count <= index {
-                    gratitudeItems.append("")
-                }
-                gratitudeItems[index] = newValue
-            }
-        )
-    }
-    
-    private func intentionContent() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("What is one thing you want to focus on today?")
-                .font(.subheadline)
-                .foregroundColor(themeManager.secondaryTextColor)
-            
-            TextEditor(text: $intentionText)
-                .frame(height: 100)
-                .padding()
-                .background(themeManager.cardBackgroundColor)
-                .cornerRadius(14)
-                .scrollContentBackground(.hidden)
-                .overlay(
-                    Group {
-                        if intentionText.isEmpty {
-                            Text("e.g., 'Be patient with others' or 'Trust God's timing'")
-                                .font(.subheadline)
-                                .foregroundColor(themeManager.secondaryTextColor.opacity(0.5))
-                                .padding(.leading, 20)
-                                .padding(.top, 24)
-                        }
-                    },
-                    alignment: .topLeading
-                )
-        }
-    }
-    
-    private func reflectionContent(questions: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(questions, id: \.self) { question in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundColor(.indigo)
-                        .padding(.top, 6)
-                    
-                    Text(question)
-                        .font(.subheadline)
-                        .foregroundColor(themeManager.textColor)
-                }
-            }
-            
-            TextEditor(text: $reflectionText)
-                .frame(height: 80)
-                .padding()
-                .background(themeManager.cardBackgroundColor)
-                .cornerRadius(12)
-                .scrollContentBackground(.hidden)
-        }
-        .padding()
-        .background(themeManager.cardBackgroundColor.opacity(0.5))
-        .cornerRadius(14)
-    }
-    
-    private func customContent(instructions: String) -> some View {
-        Text(instructions)
-            .font(.body)
-            .foregroundColor(themeManager.textColor)
-            .padding()
-            .background(themeManager.cardBackgroundColor)
-            .cornerRadius(14)
-    }
-    
-    // MARK: - Navigation
-    
-    private var navigationButtons: some View {
-        HStack(spacing: 16) {
-            if currentStepIndex > 0 {
-                Button {
-                    withAnimation {
-                        currentStepIndex -= 1
+                },
+                onNext: {
+                    withAnimation(.spring(response: 0.3)) {
+                        currentStepIndex = min(enabledSteps.count - 1, currentStepIndex + 1)
                     }
-                } label: {
-                    HStack {
-                        Image(systemName: "chevron.left")
-                        Text("Back")
-                    }
-                    .font(.headline)
-                    .foregroundColor(themeManager.textColor)
-                    .padding()
-                    .background(themeManager.cardBackgroundColor)
-                    .cornerRadius(12)
-                }
-            }
-            
-            Spacer()
-            
-            Button {
-                if currentStepIndex < enabledSteps.count - 1 {
-                    withAnimation {
-                        currentStepIndex += 1
-                    }
-                } else {
+                },
+                onComplete: {
                     completeRoutine()
                 }
-            } label: {
-                HStack {
-                    Text(currentStepIndex < enabledSteps.count - 1 ? "Next" : "Complete")
-                    Image(systemName: currentStepIndex < enabledSteps.count - 1 ? "chevron.right" : "checkmark.circle.fill")
-                }
-                .font(.headline)
-                .foregroundColor(.white)
-                .padding()
-                .background(currentMode.accentColor)
-                .cornerRadius(12)
-            }
+            )
         }
-        .padding()
-        .background(
-            themeManager.backgroundColor
-                .opacity(0.95)
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
     
     // MARK: - Completion View
@@ -618,30 +510,42 @@ struct DailyRoutineView: View {
         VStack(spacing: 24) {
             Spacer()
             
-            Image(systemName: currentMode == .morning ? "sun.max.fill" : "moon.zzz.fill")
-                .font(.system(size: 80))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: currentMode == .morning ? [.yellow, .orange] : [.indigo, .teal],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            // Animated completion stamp
+            JournalCompletionStamp(mode: currentMode)
+                .padding(.bottom, 8)
             
             Text(currentMode == .morning ? "You're Ready!" : "Sweet Dreams")
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(themeManager.textColor)
+                .font(accessibility.headingFont(size: 28))
+                .foregroundColor(Color.Journal.inkBrown)
             
             Text(currentMode == .morning
                  ? "You've completed your morning routine. Go forth and shine God's light today!"
                  : "You've completed your evening routine. May God grant you peaceful, restful sleep.")
-                .font(.subheadline)
-                .foregroundColor(themeManager.secondaryTextColor)
+                .font(accessibility.bodyFont())
+                .foregroundColor(Color.Journal.mutedText)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal)
             
             // Summary cards
             completionSummary
+            
+            // Updated streak
+            if routineStreak.currentStreak > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(.orange)
+                    
+                    Text("\(routineStreak.currentStreak + 1)-day streak!")
+                        .font(accessibility.headingFont(size: 17))
+                        .foregroundColor(Color.Journal.inkBrown)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(Color.orange.opacity(0.15))
+                )
+            }
             
             Spacer()
             
@@ -649,80 +553,79 @@ struct DailyRoutineView: View {
                 dismiss()
             } label: {
                 Text(currentMode == .morning ? "Start My Day" : "Good Night")
-                    .font(.headline)
+                    .font(accessibility.headingFont(size: 17))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding()
+                    .padding(.vertical, 16)
                     .background(
-                        LinearGradient(
-                            colors: currentMode == .morning ? [.orange, .yellow] : [.indigo, .teal],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(
+                                LinearGradient(
+                                    colors: [currentMode.accentColor, currentMode.secondaryAccent],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                     )
-                    .cornerRadius(14)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
-        .padding()
     }
     
     @ViewBuilder
     private var completionSummary: some View {
         VStack(spacing: 12) {
             if currentMode == .morning && !intentionText.isEmpty {
-                summaryCard(title: "Your Intention", content: intentionText, icon: "target", color: .green)
+                RoutineJournalCard(mode: currentMode) {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "target")
+                                .foregroundColor(.green)
+                            Text("Your Intention")
+                                .font(accessibility.captionFont())
+                                .foregroundColor(Color.Journal.mutedText)
+                        }
+                        
+                        Text("\"\(intentionText)\"")
+                            .font(accessibility.bodyFont(size: 15))
+                            .fontWeight(.medium)
+                            .foregroundColor(Color.Journal.inkBrown)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(.horizontal, 40)
             }
             
             let filledGratitude = gratitudeItems.filter { !$0.isEmpty }
             if !filledGratitude.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Image(systemName: "heart.fill")
-                            .foregroundColor(.pink)
-                        Text("Gratitude")
-                            .font(.caption)
-                            .foregroundColor(themeManager.secondaryTextColor)
-                    }
-                    
-                    ForEach(filledGratitude, id: \.self) { item in
+                RoutineJournalCard(mode: currentMode) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "heart.fill")
-                                .font(.caption2)
-                                .foregroundColor(.pink.opacity(0.6))
-                            Text(item)
-                                .font(.caption)
-                                .foregroundColor(themeManager.textColor)
+                                .foregroundColor(.pink)
+                            Text("Gratitude")
+                                .font(accessibility.captionFont())
+                                .foregroundColor(Color.Journal.mutedText)
+                        }
+                        
+                        ForEach(filledGratitude, id: \.self) { item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.pink.opacity(0.6))
+                                    .padding(.top, 5)
+                                
+                                Text(item)
+                                    .font(accessibility.captionFont())
+                                    .foregroundColor(Color.Journal.inkBrown)
+                            }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(themeManager.cardBackgroundColor)
-                .cornerRadius(12)
+                .padding(.horizontal, 40)
             }
         }
-    }
-    
-    private func summaryCard(title: String, content: String, icon: String, color: Color) -> some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: icon)
-                    .foregroundColor(color)
-                Text(title)
-                    .font(.caption)
-                    .foregroundColor(themeManager.secondaryTextColor)
-            }
-            
-            Text("\"\(content)\"")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(themeManager.textColor)
-                .multilineTextAlignment(.center)
-        }
-        .padding()
-        .background(themeManager.cardBackgroundColor)
-        .cornerRadius(12)
     }
     
     // MARK: - Actions
@@ -733,49 +636,95 @@ struct DailyRoutineView: View {
         breathPhase = .inhale
         
         let cycleDuration = Double(inhale + hold + exhale)
-        var elapsed: Double = 0
+        var elapsed: Double = -1 // Start at -1 so first tick puts us at 0 (beginning of inhale)
+        
+        // Haptic feedback at start
+        HapticManager.shared.mediumImpact()
         
         breathTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            elapsed += 1
-            let positionInCycle = Int(elapsed) % Int(cycleDuration)
-            
-            if positionInCycle < inhale {
-                breathPhase = .inhale
-            } else if positionInCycle < inhale + hold {
-                breathPhase = .hold
-            } else {
-                breathPhase = .exhale
-            }
-            
-            if positionInCycle == 0 && elapsed > 0 {
-                breathCycleCount += 1
-            }
-            
-            if breathCycleCount >= cycles {
-                breathTimer?.invalidate()
-                isBreathing = false
+            Task { @MainActor in
+                elapsed += 1
+                let positionInCycle = Int(elapsed) % Int(cycleDuration)
+                
+                let previousPhase = breathPhase
+                
+                // Determine current phase based on position in cycle
+                if positionInCycle < inhale {
+                    breathPhase = .inhale
+                } else if positionInCycle < inhale + hold {
+                    breathPhase = .hold
+                } else {
+                    breathPhase = .exhale
+                }
+                
+                // Haptic on phase change for better guidance
+                if previousPhase != breathPhase {
+                    switch breathPhase {
+                    case .inhale:
+                        HapticManager.shared.mediumImpact()
+                    case .hold:
+                        HapticManager.shared.lightImpact()
+                    case .exhale:
+                        HapticManager.shared.softImpact()
+                    }
+                }
+                
+                // Track cycle completion
+                if positionInCycle == 0 && elapsed > 0 {
+                    breathCycleCount += 1
+                    
+                    // Check if all cycles are complete
+                    if breathCycleCount >= cycles {
+                        breathTimer?.invalidate()
+                        breathTimer = nil
+                        
+                        // Brief delay before resetting to show completion
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            isBreathing = false
+                            HapticManager.shared.success()
+                        }
+                    }
+                }
             }
         }
+        
+        // Fire immediately to start the first phase
+        breathTimer?.fire()
+    }
+    
+    // Helper to create binding for per-step reflection text
+    private func reflectionBinding(for stepId: UUID) -> Binding<String> {
+        Binding(
+            get: { reflectionTexts[stepId] ?? "" },
+            set: { reflectionTexts[stepId] = $0 }
+        )
+    }
+    
+    // Combine all reflection texts into one string
+    private var combinedReflectionNotes: String? {
+        let allReflections = reflectionTexts.values.filter { !$0.isEmpty }
+        return allReflections.isEmpty ? nil : allReflections.joined(separator: "\n\n")
     }
     
     private func completeRoutine() {
         breathTimer?.invalidate()
         
-        if currentMode == .morning {
-            viewModel.completeMorningRoutine()
-            if !intentionText.isEmpty {
-                viewModel.setDailyIntention(intentionText)
-            }
-        } else {
-            viewModel.completeNightRoutine()
-        }
+        // Record completion with full data sync
+        viewModel.recordRoutineCompletion(
+            configuration: configuration,
+            startTime: routineStartTime,
+            stepsCompleted: enabledSteps.count,
+            intentionText: intentionText.isEmpty ? nil : intentionText,
+            gratitudeItems: gratitudeItems.filter { !$0.isEmpty },
+            reflectionNotes: combinedReflectionNotes,
+            moodAtStart: moodAtStart,
+            moodAtEnd: moodAtEnd
+        )
         
-        // Save gratitude items
-        for item in gratitudeItems where !item.isEmpty {
-            viewModel.addGratitudeItem(item, category: .general)
-        }
+        // Success haptic
+        HapticManager.shared.success()
         
-        withAnimation {
+        withAnimation(.spring(response: 0.5)) {
             showCompletion = true
         }
     }
@@ -783,7 +732,7 @@ struct DailyRoutineView: View {
 
 // MARK: - Breath Phase
 
-enum BreathPhase {
+enum BreathPhase: Equatable, Sendable {
     case inhale
     case hold
     case exhale
@@ -797,7 +746,7 @@ enum BreathPhase {
     }
 }
 
-// MARK: - Step Editor View
+// MARK: - Step Editor View (Updated)
 
 struct RoutineStepEditorView: View {
     let configuration: RoutineConfiguration
@@ -805,7 +754,7 @@ struct RoutineStepEditorView: View {
     let onSave: (RoutineConfiguration) -> Void
     
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var accessibility = AccessibilityManager.shared
     
     @State private var editedSteps: [RoutineStep]
     @State private var showAddStep = false
@@ -819,42 +768,61 @@ struct RoutineStepEditorView: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    ForEach(editedSteps) { step in
-                        stepRow(step)
+            ZStack {
+                Color.Journal.paper.ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        hideKeyboard()
                     }
-                    .onMove(perform: moveStep)
-                    .onDelete(perform: deleteStep)
-                } header: {
-                    Text("Routine Steps")
-                } footer: {
-                    Text("Drag to reorder, swipe to delete")
-                        .font(.caption)
-                }
                 
-                Section {
-                    Button {
-                        showAddStep = true
-                    } label: {
-                        Label("Add Step", systemImage: "plus.circle.fill")
+                List {
+                    Section {
+                        ForEach(editedSteps) { step in
+                            stepRow(step)
+                        }
+                        .onMove(perform: moveStep)
+                        .onDelete(perform: deleteStep)
+                    } header: {
+                        Text("Routine Steps")
+                            .font(accessibility.captionFont())
+                    } footer: {
+                        Text("Drag to reorder, swipe to delete")
+                            .font(accessibility.captionFont(size: 11))
+                    }
+                    
+                    Section {
+                        Button {
+                            showAddStep = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Add Step")
+                                    .font(accessibility.bodyFont())
+                            }
                             .foregroundColor(mode.accentColor)
+                        }
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Customize Routine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(accessibility.bodyFont())
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveConfiguration()
                     }
+                    .font(accessibility.bodyFont())
+                    .fontWeight(.semibold)
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
+                        .font(accessibility.bodyFont())
                 }
             }
             .sheet(isPresented: $showAddStep) {
@@ -875,13 +843,14 @@ struct RoutineStepEditorView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(step.title)
-                    .font(.subheadline)
+                    .font(accessibility.bodyFont(size: 15))
                     .fontWeight(.medium)
+                    .foregroundColor(Color.Journal.inkBrown)
                 
                 if let duration = step.formattedDuration {
                     Text(duration)
-                        .font(.caption)
-                        .foregroundColor(themeManager.secondaryTextColor)
+                        .font(accessibility.captionFont())
+                        .foregroundColor(Color.Journal.mutedText)
                 }
             }
             
@@ -896,7 +865,9 @@ struct RoutineStepEditorView: View {
                 }
             ))
             .labelsHidden()
+            .tint(mode.accentColor)
         }
+        .listRowBackground(Color.Journal.cardBackground)
     }
     
     private func moveStep(from source: IndexSet, to destination: Int) {
@@ -918,14 +889,14 @@ struct RoutineStepEditorView: View {
     }
 }
 
-// MARK: - Add Step View
+// MARK: - Add Step View (Updated)
 
 struct AddStepView: View {
     let mode: RoutineMode
     let onAdd: (RoutineStep) -> Void
     
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var accessibility = AccessibilityManager.shared
     
     var availableSteps: [RoutineStep] {
         mode == .morning ? RoutineStepLibrary.morningSteps : RoutineStepLibrary.eveningSteps
@@ -933,44 +904,54 @@ struct AddStepView: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(availableSteps) { step in
-                    Button {
-                        onAdd(step)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: step.category.icon)
-                                .foregroundColor(step.category.color)
-                                .frame(width: 30)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(step.title)
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(themeManager.textColor)
-                                
-                                Text(step.description)
-                                    .font(.caption)
-                                    .foregroundColor(themeManager.secondaryTextColor)
-                            }
-                            
-                            Spacer()
-                            
-                            if let duration = step.formattedDuration {
-                                Text(duration)
-                                    .font(.caption)
+            ZStack {
+                Color.Journal.paper.ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        hideKeyboard()
+                    }
+                
+                List {
+                    ForEach(availableSteps) { step in
+                        Button {
+                            onAdd(step)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: step.category.icon)
                                     .foregroundColor(step.category.color)
+                                    .frame(width: 30)
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(step.title)
+                                        .font(accessibility.bodyFont(size: 15))
+                                        .fontWeight(.medium)
+                                        .foregroundColor(Color.Journal.inkBrown)
+                                    
+                                    Text(step.description)
+                                        .font(accessibility.captionFont())
+                                        .foregroundColor(Color.Journal.mutedText)
+                                        .lineLimit(2)
+                                }
+                                
+                                Spacer()
+                                
+                                if let duration = step.formattedDuration {
+                                    JournalBadge(text: duration, mode: mode)
+                                }
                             }
                         }
+                        .listRowBackground(Color.Journal.cardBackground)
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
             .navigationTitle("Add Step")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(accessibility.bodyFont())
                 }
             }
         }
@@ -980,5 +961,3 @@ struct AddStepView: View {
 #Preview {
     DailyRoutineView(viewModel: HubViewModel())
 }
-
-

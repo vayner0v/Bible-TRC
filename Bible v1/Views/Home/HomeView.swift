@@ -8,54 +8,54 @@
 import SwiftUI
 
 /// Main home view with tab navigation - Hub is now the default tab
+/// 5 tabs: Hub, TRC AI, Read (with Read/Saved/Search/Journal segments), Community, Settings
 struct HomeView: View {
     @StateObject private var bibleViewModel = BibleViewModel()
     @StateObject private var searchViewModel = SearchViewModel()
     @StateObject private var favoritesViewModel = FavoritesViewModel()
     @StateObject private var settingsViewModel = SettingsViewModel()
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var aiNotificationService = AIBackgroundNotificationService.shared
+    @EnvironmentObject private var navigationManager: WidgetNavigationManager
     
     // Hub is now the default tab (index 0)
     @State private var selectedTab = 0
+    @State private var pendingAIConversationId: UUID?
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Hub tab (Spiritual Growth Center) - NOW FIRST
+            // Hub tab (Spiritual Growth Center)
             HubView()
                 .tabItem {
                     Label("Hub", systemImage: "sparkles")
                 }
                 .tag(0)
             
-            // Read tab (now contains segmented control for Reader/Journal)
+            // TRC AI tab - Bible Assistant
+            TRCAIChatTabView()
+                .tabItem {
+                    Label("TRC AI", systemImage: "bubble.left.and.text.bubble.right.fill")
+                }
+                .tag(1)
+            
+            // Read tab (contains segmented control for Reader/Saved/Search/Journal)
             ReadTabContainerView(
                 bibleViewModel: bibleViewModel,
-                favoritesViewModel: favoritesViewModel
+                favoritesViewModel: favoritesViewModel,
+                searchViewModel: searchViewModel
             )
             .tabItem {
                 Label("Read", systemImage: "book.fill")
             }
-            .tag(1)
-            
-            // Search tab
-            SearchView(
-                viewModel: searchViewModel,
-                bibleViewModel: bibleViewModel
-            )
-            .tabItem {
-                Label("Search", systemImage: "magnifyingglass")
-            }
             .tag(2)
             
-            // Favorites tab
-            FavoritesView(
-                viewModel: favoritesViewModel,
-                bibleViewModel: bibleViewModel
-            )
-            .tabItem {
-                Label("Saved", systemImage: "heart.fill")
-            }
-            .tag(3)
+            // Community tab (Social features - Scripture as native object)
+            CommunityTabView()
+                .environmentObject(themeManager)
+                .tabItem {
+                    Label("Community", systemImage: "person.3.fill")
+                }
+                .tag(3)
             
             // Settings tab
             SettingsView(
@@ -73,7 +73,44 @@ struct HomeView: View {
             searchViewModel.bibleViewModel = bibleViewModel
             await bibleViewModel.loadInitialDataIfNeeded()
         }
+        .onChange(of: navigationManager.shouldNavigate) { _, shouldNavigate in
+            if shouldNavigate, let destination = navigationManager.pendingDestination {
+                selectedTab = destination.tabIndex
+                
+                // If navigating to a specific segment within the Read tab, send notification
+                if let readSegment = destination.readSegment {
+                    // Small delay to ensure tab switch completes first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NotificationCenter.default.post(
+                            name: .selectReadSegment,
+                            object: nil,
+                            userInfo: ["segment": readSegment]
+                        )
+                    }
+                }
+                
+                navigationManager.clearNavigation()
+            }
+        }
+        // AI Notification Banner Overlay (only show when not on TRC AI tab)
+        .overlay(alignment: .top) {
+            if selectedTab != 1 {
+                AINotificationBannerView { conversationId in
+                    pendingAIConversationId = conversationId
+                    selectedTab = 1 // Switch to AI tab
+                }
+                .padding(.top, 50)
+            }
+        }
+        // AI Background Processing Indicator (only show when not on TRC AI tab)
+        .overlay(alignment: .bottom) {
+            if selectedTab != 1 {
+                AIBackgroundProcessingIndicator()
+                    .padding(.bottom, 100)
+            }
+        }
     }
+    
 }
 
 /// Welcome view for first-time users

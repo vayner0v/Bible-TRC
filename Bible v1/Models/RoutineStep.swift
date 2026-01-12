@@ -26,6 +26,14 @@ enum RoutineMode: String, Codable, CaseIterable, Identifiable {
         }
     }
     
+    var greeting: String {
+        switch self {
+        case .morning: return "Good Morning"
+        case .evening: return "Good Evening"
+        case .anytime: return "Welcome"
+        }
+    }
+    
     var icon: String {
         switch self {
         case .morning: return "sunrise.fill"
@@ -34,20 +42,48 @@ enum RoutineMode: String, Codable, CaseIterable, Identifiable {
         }
     }
     
+    /// Journaling-aesthetic warm gradients
     var gradient: [Color] {
         switch self {
-        case .morning: return [Color.orange.opacity(0.3), Color.yellow.opacity(0.1)]
-        case .evening: return [Color.indigo.opacity(0.3), Color.teal.opacity(0.1)]
-        case .anytime: return [Color.blue.opacity(0.2), Color.cyan.opacity(0.1)]
+        case .morning: return [Color("JournalMorningStart", bundle: nil), Color("JournalMorningEnd", bundle: nil)]
+        case .evening: return [Color("JournalEveningStart", bundle: nil), Color("JournalEveningEnd", bundle: nil)]
+        case .anytime: return [Color("JournalAnytimeStart", bundle: nil), Color("JournalAnytimeEnd", bundle: nil)]
+        }
+    }
+    
+    /// Fallback gradients when custom colors aren't available
+    var fallbackGradient: [Color] {
+        switch self {
+        case .morning: return [Color(hex: "FFF8E7"), Color(hex: "FFE4C4")]
+        case .evening: return [Color(hex: "E8E4F0"), Color(hex: "D4C4E8")]
+        case .anytime: return [Color(hex: "F5F2ED"), Color(hex: "E8E4DC")]
         }
     }
     
     var accentColor: Color {
         switch self {
-        case .morning: return .orange
-        case .evening: return .indigo
-        case .anytime: return .blue
+        case .morning: return Color(hex: "D4883A") // Warm amber
+        case .evening: return Color(hex: "7B68A6") // Soft lavender
+        case .anytime: return Color(hex: "8B7355") // Warm brown
         }
+    }
+    
+    var secondaryAccent: Color {
+        switch self {
+        case .morning: return Color(hex: "E8A84C")
+        case .evening: return Color(hex: "9B8BC4")
+        case .anytime: return Color(hex: "A08060")
+        }
+    }
+    
+    /// Paper-like background color for journaling aesthetic
+    var paperBackground: Color {
+        Color(hex: "FAF8F5")
+    }
+    
+    /// Cream background for cards
+    var cardBackground: Color {
+        Color(hex: "F5F2ED")
     }
     
     /// Determines current mode based on time of day
@@ -68,6 +104,23 @@ enum RoutineMode: String, Codable, CaseIterable, Identifiable {
         case .evening: return hour >= 18 || hour < 4
         case .anytime: return true
         }
+    }
+    
+    /// Suggested notification time for this mode
+    var suggestedNotificationTime: DateComponents {
+        var components = DateComponents()
+        switch self {
+        case .morning:
+            components.hour = 7
+            components.minute = 0
+        case .evening:
+            components.hour = 21
+            components.minute = 0
+        case .anytime:
+            components.hour = 12
+            components.minute = 0
+        }
+        return components
     }
 }
 
@@ -203,31 +256,59 @@ enum RoutineStepContent: Codable, Equatable, Hashable {
 // MARK: - Routine Configuration
 
 /// User's saved routine configuration
-struct RoutineConfiguration: Identifiable, Codable {
+struct RoutineConfiguration: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
+    var description: String
     var steps: [RoutineStep]
     var mode: RoutineMode
     var createdAt: Date
     var lastUsedAt: Date?
     var completionCount: Int
+    var isDefault: Bool
+    var isCustom: Bool
+    var icon: String
+    var colorHex: String?
+    
+    // Notification settings
+    var notificationEnabled: Bool
+    var notificationTime: DateComponents?
+    
+    // Linked habits that get auto-checked on completion
+    var linkedHabits: [SpiritualHabit]
     
     init(
         id: UUID = UUID(),
         name: String,
+        description: String = "",
         steps: [RoutineStep],
         mode: RoutineMode,
         createdAt: Date = Date(),
         lastUsedAt: Date? = nil,
-        completionCount: Int = 0
+        completionCount: Int = 0,
+        isDefault: Bool = false,
+        isCustom: Bool = false,
+        icon: String = "sparkles",
+        colorHex: String? = nil,
+        notificationEnabled: Bool = false,
+        notificationTime: DateComponents? = nil,
+        linkedHabits: [SpiritualHabit] = []
     ) {
         self.id = id
         self.name = name
+        self.description = description
         self.steps = steps
         self.mode = mode
         self.createdAt = createdAt
         self.lastUsedAt = lastUsedAt
         self.completionCount = completionCount
+        self.isDefault = isDefault
+        self.isCustom = isCustom
+        self.icon = icon
+        self.colorHex = colorHex
+        self.notificationEnabled = notificationEnabled
+        self.notificationTime = notificationTime
+        self.linkedHabits = linkedHabits
     }
     
     var enabledSteps: [RoutineStep] {
@@ -244,6 +325,57 @@ struct RoutineConfiguration: Identifiable, Codable {
             return "< 1 min"
         }
         return "\(minutes) min"
+    }
+    
+    var accentColor: Color {
+        if let hex = colorHex {
+            return Color(hex: hex)
+        }
+        return mode.accentColor
+    }
+    
+    var stepCount: Int {
+        enabledSteps.count
+    }
+    
+    /// Create a duplicate of this configuration with a new ID
+    func duplicate(newName: String? = nil) -> RoutineConfiguration {
+        var copy = self
+        copy = RoutineConfiguration(
+            id: UUID(),
+            name: newName ?? "\(name) (Copy)",
+            description: description,
+            steps: steps.map { step in
+                var newStep = step
+                newStep.order = step.order
+                return newStep
+            },
+            mode: mode,
+            createdAt: Date(),
+            lastUsedAt: nil,
+            completionCount: 0,
+            isDefault: false,
+            isCustom: true,
+            icon: icon,
+            colorHex: colorHex,
+            notificationEnabled: false,
+            notificationTime: nil,
+            linkedHabits: linkedHabits
+        )
+        return copy
+    }
+    
+    mutating func recordCompletion() {
+        completionCount += 1
+        lastUsedAt = Date()
+    }
+    
+    static func == (lhs: RoutineConfiguration, rhs: RoutineConfiguration) -> Bool {
+        lhs.id == rhs.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -402,9 +534,15 @@ struct RoutineStepLibrary {
             steps[i].order = i
         }
         return RoutineConfiguration(
-            name: "Default Morning Routine",
+            name: "Morning Quiet Time",
+            description: "Start your day with prayer, scripture, and intention",
             steps: steps,
-            mode: .morning
+            mode: .morning,
+            isDefault: true,
+            isCustom: false,
+            icon: "sunrise.fill",
+            colorHex: "D4883A",
+            linkedHabits: [.prayer, .bibleReading, .gratitude]
         )
     }
     
@@ -414,10 +552,39 @@ struct RoutineStepLibrary {
             steps[i].order = i
         }
         return RoutineConfiguration(
-            name: "Default Evening Routine",
+            name: "Evening Wind-Down",
+            description: "Reflect on your day and prepare for restful sleep",
             steps: steps,
-            mode: .evening
+            mode: .evening,
+            isDefault: true,
+            isCustom: false,
+            icon: "moon.stars.fill",
+            colorHex: "7B68A6",
+            linkedHabits: [.prayer, .gratitude]
         )
+    }
+    
+    static var quickPrayerRoutine: RoutineConfiguration {
+        let steps = [morningPrayer, morningBreathing]
+        var orderedSteps = steps
+        for i in 0..<orderedSteps.count {
+            orderedSteps[i].order = i
+        }
+        return RoutineConfiguration(
+            name: "Quick Prayer",
+            description: "A brief moment of prayer and centering",
+            steps: orderedSteps,
+            mode: .anytime,
+            isDefault: true,
+            isCustom: false,
+            icon: "hands.sparkles",
+            colorHex: "8B7355",
+            linkedHabits: [.prayer]
+        )
+    }
+    
+    static var allDefaultRoutines: [RoutineConfiguration] {
+        [defaultMorningRoutine, defaultEveningRoutine, quickPrayerRoutine]
     }
 }
 

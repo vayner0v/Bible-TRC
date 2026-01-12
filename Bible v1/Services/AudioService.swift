@@ -31,9 +31,43 @@ enum AudioSource {
 }
 
 /// Preferred voice type selection
-enum PreferredVoiceType: String {
+enum PreferredVoiceType: String, Codable {
     case premium = "premium"
     case builtin = "builtin"
+}
+
+/// Represents a saved audio playback position for "continue where you left off"
+struct AudioPlaybackPosition: Codable, Equatable {
+    let translationId: String
+    let bookId: String
+    let bookName: String
+    let chapter: Int
+    let verseIndex: Int
+    let totalVerses: Int
+    let voiceType: PreferredVoiceType
+    let timestamp: Date
+    
+    init(translationId: String, bookId: String, bookName: String, chapter: Int, verseIndex: Int, totalVerses: Int, voiceType: PreferredVoiceType, timestamp: Date = Date()) {
+        self.translationId = translationId
+        self.bookId = bookId
+        self.bookName = bookName
+        self.chapter = chapter
+        self.verseIndex = verseIndex
+        self.totalVerses = totalVerses
+        self.voiceType = voiceType
+        self.timestamp = timestamp
+    }
+    
+    /// Display string for UI (e.g., "John 3:16")
+    var displayString: String {
+        "\(bookName) \(chapter):\(verseIndex + 1)"
+    }
+    
+    /// Check if position is still valid (not too old - 30 days)
+    var isValid: Bool {
+        let maxAge: TimeInterval = 30 * 24 * 60 * 60 // 30 days
+        return Date().timeIntervalSince(timestamp) < maxAge
+    }
 }
 
 /// Service for text-to-speech audio playback of Bible verses
@@ -59,6 +93,7 @@ class AudioService: NSObject, ObservableObject {
         static let speechRate = "audio_speech_rate"
         static let immersiveModeEnabled = "audio_immersive_mode_enabled"
         static let autoContinueChapter = "audio_auto_continue_chapter"
+        static let lastAudioPosition = "audio_last_playback_position"
     }
     
     // Playback state
@@ -125,6 +160,15 @@ class AudioService: NSObject, ObservableObject {
     // Now playing manager
     private var nowPlayingManager: NowPlayingManager?
     
+    // Live Activity service for Dynamic Island
+    private var liveActivityService: LiveActivityService?
+    
+    // Book name for Live Activity (stored when playback starts)
+    private var bookName: String = ""
+    
+    // Track if we were playing before an interruption
+    private var wasPlayingBeforeInterruption: Bool = false
+    
     override init() {
         super.init()
         synthesizer.delegate = self
@@ -137,8 +181,37 @@ class AudioService: NSObject, ObservableObject {
         // This avoids circular dependency issues during singleton initialization
         setupNotificationObservers()
         
+        // Set up Live Activity service (deferred to avoid initialization issues)
+        Task { @MainActor in
+            self.liveActivityService = LiveActivityService.shared
+        }
+        
+        // Observe UserDefaults changes for settings sync
+        setupUserDefaultsObserver()
+        
         // NOTE: Do NOT access SubscriptionManager.shared here!
         // It will be synced via notification or deferred call after app launch
+    }
+    
+    /// Set up observer for UserDefaults changes to sync settings
+    private func setupUserDefaultsObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleUserDefaultsChanged),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+    }
+    
+    @objc nonisolated private func handleUserDefaultsChanged(_ notification: Notification) {
+        Task { @MainActor in
+            // Sync preferredVoiceType from UserDefaults if changed externally
+            if let voiceType = UserDefaults.standard.string(forKey: Keys.preferredVoiceType),
+               let type = PreferredVoiceType(rawValue: voiceType),
+               type != self.preferredVoiceType {
+                self.preferredVoiceType = type
+            }
+        }
     }
     
     /// Set up observers for notifications from other services
@@ -166,6 +239,35 @@ class AudioService: NSObject, ObservableObject {
             name: .usageLimitReset,
             object: nil
         )
+        
+        // Observe audio control actions from Live Activity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioControlAction),
+            name: .audioControlAction,
+            object: nil
+        )
+    }
+    
+    @objc nonisolated private func handleAudioControlAction(_ notification: Notification) {
+        guard let actionString = notification.userInfo?["action"] as? String else { return }
+        
+        Task { @MainActor in
+            switch actionString {
+            case "play":
+                self.resume()
+            case "pause":
+                self.pause()
+            case "next":
+                self.nextVerse()
+            case "previous":
+                self.previousVerse()
+            case "stop":
+                self.stop()
+            default:
+                break
+            }
+        }
     }
     
     @objc nonisolated private func handleSubscriptionStatusChanged(_ notification: Notification) {
@@ -241,8 +343,10 @@ class AudioService: NSObject, ObservableObject {
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
+            // Use .playback category for background audio support
+            // .mixWithOthers removed to ensure we take audio focus
             try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .allowBluetoothA2DP, .allowAirPlay])
-            try session.setActive(true)
+            try session.setActive(true, options: [])
             
             // Register for interruption notifications
             NotificationCenter.default.addObserver(
@@ -259,8 +363,140 @@ class AudioService: NSObject, ObservableObject {
                 name: AVAudioSession.routeChangeNotification,
                 object: session
             )
+            
+            // Register for app lifecycle notifications
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppWillResignActive),
+                name: UIApplication.willResignActiveNotification,
+                object: nil
+            )
+            
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppDidEnterBackground),
+                name: UIApplication.didEnterBackgroundNotification,
+                object: nil
+            )
+            
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppWillEnterForeground),
+                name: UIApplication.willEnterForegroundNotification,
+                object: nil
+            )
+            
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppDidBecomeActive),
+                name: UIApplication.didBecomeActiveNotification,
+                object: nil
+            )
+            
+            // Register for app termination - critical for saving position
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppWillTerminate),
+                name: UIApplication.willTerminateNotification,
+                object: nil
+            )
         } catch {
             print("Failed to setup audio session: \(error)")
+        }
+    }
+    
+    /// Ensure audio session is active before playback
+    /// Call this before starting any audio playback
+    private func activateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            // Ensure category is set correctly
+            if session.category != .playback {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .allowBluetoothA2DP, .allowAirPlay])
+            }
+            // Activate the session
+            try session.setActive(true, options: [])
+            print("AudioService: Audio session activated successfully")
+        } catch {
+            print("AudioService: Failed to activate audio session: \(error)")
+        }
+    }
+    
+    @objc nonisolated private func handleAppWillResignActive(_ notification: Notification) {
+        // App losing focus but not yet in background
+        Task { @MainActor in
+            // Save audio position immediately when app loses focus
+            // This handles the case where user force-quits from app switcher
+            if self.isPlaying || self.isPaused {
+                print("AudioService: App will resign active, saving audio position")
+                self.saveAudioPlaybackPosition()
+            }
+            
+            if self.isPlaying {
+                // Prepare for potential background - ensure session is configured
+                self.activateAudioSession()
+            }
+        }
+    }
+    
+    @objc nonisolated private func handleAppDidEnterBackground(_ notification: Notification) {
+        // App fully in background - critical for background playback
+        Task { @MainActor in
+            // Save audio position when entering background (redundant with willResignActive, but ensures safety)
+            if self.isPlaying || self.isPaused {
+                print("AudioService: App entered background, saving audio position")
+                self.saveAudioPlaybackPosition()
+            }
+            
+            if self.isPlaying {
+                print("AudioService: App entered background, audio is playing - ensuring continuation")
+                
+                // Re-activate session to maintain background audio
+                self.activateAudioSession()
+                
+                // Update now playing info - iOS uses this to keep audio alive
+                self.nowPlayingManager?.updateNowPlayingInfo()
+                
+                // Ensure player is still playing (sometimes it needs a nudge)
+                if let player = self.audioPlayer, !player.isPlaying && !self.isPaused {
+                    print("AudioService: Player stopped unexpectedly, restarting...")
+                    player.play()
+                }
+            }
+        }
+    }
+    
+    @objc nonisolated private func handleAppWillEnterForeground(_ notification: Notification) {
+        Task { @MainActor in
+            print("AudioService: App will enter foreground")
+            if self.isPlaying {
+                // Re-activate in case session was interrupted
+                self.activateAudioSession()
+            }
+        }
+    }
+    
+    @objc nonisolated private func handleAppDidBecomeActive(_ notification: Notification) {
+        Task { @MainActor in
+            if self.isPlaying {
+                print("AudioService: App became active, audio was playing")
+                // Re-activate session in case it was deactivated
+                self.activateAudioSession()
+                self.nowPlayingManager?.updateNowPlayingInfo()
+            }
+        }
+    }
+    
+    @objc nonisolated private func handleAppWillTerminate(_ notification: Notification) {
+        // App is being terminated - save position synchronously
+        // Note: This is called on main thread and must complete quickly
+        Task { @MainActor in
+            if self.isPlaying || self.isPaused || !self.verses.isEmpty {
+                print("AudioService: App will terminate, saving audio position")
+                self.saveAudioPlaybackPosition()
+                // Force synchronize UserDefaults to ensure data is written
+                UserDefaults.standard.synchronize()
+            }
         }
     }
     
@@ -277,18 +513,32 @@ class AudioService: NSObject, ObservableObject {
         Task { @MainActor in
             switch type {
             case .began:
+                print("AudioService: Interruption began")
                 // Audio session interrupted (e.g., phone call)
+                // Mark that we were playing before interruption
                 if isPlaying && !isPaused {
+                    wasPlayingBeforeInterruption = true
                     pause()
                 }
             case .ended:
-                // Interruption ended
+                print("AudioService: Interruption ended")
+                // Re-activate the audio session
+                activateAudioSession()
+                
+                // Interruption ended - check if we should resume
                 if let optionsValue = optionsValue {
                     let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                    if options.contains(.shouldResume) && isPaused {
+                    if options.contains(.shouldResume) && wasPlayingBeforeInterruption {
+                        // Small delay to let the system settle
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
                         resume()
                     }
+                } else if wasPlayingBeforeInterruption {
+                    // Even without shouldResume, try to resume if we were playing
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    resume()
                 }
+                wasPlayingBeforeInterruption = false
             @unknown default:
                 break
             }
@@ -325,6 +575,7 @@ class AudioService: NSObject, ObservableObject {
         language: String = "en-US",
         translationId: String = "",
         bookId: String = "",
+        bookName: String = "",
         chapter: Int = 0,
         voiceType: PreferredVoiceType? = nil,
         onVerseChange: ((Int) -> Void)? = nil
@@ -339,6 +590,7 @@ class AudioService: NSObject, ObservableObject {
         self.currentReference = reference
         self.translationId = translationId
         self.bookId = bookId
+        self.bookName = bookName.isEmpty ? extractBookName(from: reference) : bookName
         self.chapterNum = chapter
         self.audioError = nil
         
@@ -356,74 +608,161 @@ class AudioService: NSObject, ObservableObject {
         
         // Update now playing info
         nowPlayingManager?.updateNowPlayingInfo()
+        
+        // Start Live Activity for Dynamic Island
+        startLiveActivity()
+    }
+    
+    /// Extract book name from a reference like "John 3:16"
+    private func extractBookName(from reference: String) -> String {
+        let parts = reference.components(separatedBy: " ")
+        if parts.count >= 2 {
+            // Handle numbered books like "1 John 3:16"
+            if let firstChar = parts.first?.first, firstChar.isNumber, parts.count >= 3 {
+                return "\(parts[0]) \(parts[1])"
+            }
+            return parts[0]
+        }
+        return reference
+    }
+    
+    /// Start Live Activity for audio playback
+    private func startLiveActivity() {
+        guard !verses.isEmpty else { return }
+        
+        let voiceTypeDisplay = currentAudioSource.displayName
+        let verse = verses[currentVerseIndex]
+        let verseReference = "\(bookName) \(chapterNum):\(verse.verse)"
+        
+        liveActivityService?.startAudioPlayback(
+            translationId: translationId,
+            bookName: bookName,
+            chapter: chapterNum,
+            reference: verseReference,
+            verseText: verse.text,
+            currentVerse: currentVerseIndex,
+            totalVerses: totalVerses,
+            voiceType: voiceTypeDisplay,
+            isLoading: isLoadingAudio
+        )
+    }
+    
+    /// Update Live Activity with current state
+    private func updateLiveActivity() {
+        guard !verses.isEmpty, currentVerseIndex < verses.count else { return }
+        
+        let verse = verses[currentVerseIndex]
+        let verseReference = "\(bookName) \(chapterNum):\(verse.verse)"
+        let voiceTypeDisplay = currentAudioSource.displayName
+        
+        print("AudioService: Updating Live Activity - playing: \(isPlaying), paused: \(isPaused), verse: \(currentVerseIndex)")
+        
+        liveActivityService?.updateAudioState(
+            reference: verseReference,
+            verseText: verse.text,
+            isPlaying: isPlaying && !isPaused,
+            currentVerse: currentVerseIndex,
+            totalVerses: totalVerses,
+            voiceType: voiceTypeDisplay,
+            isLoading: isLoadingAudio
+        )
+    }
+    
+    /// Force update Live Activity (called from external sources like Live Activity controls)
+    func forceUpdateLiveActivity() {
+        updateLiveActivity()
     }
     
     private func playCurrentVerse() {
+        print("AudioService: playCurrentVerse called - index: \(currentVerseIndex)")
         guard currentVerseIndex < verses.count else {
+            print("AudioService: Index out of bounds, stopping")
             stop()
             return
         }
         
         let verse = verses[currentVerseIndex]
         currentVerseText = verse.text
+        currentReference = "\(bookName) \(chapterNum):\(verse.verse)"
         onVerseChange?(currentVerseIndex)
         
+        // Save position on each verse change for crash safety
+        // This ensures we can resume even if the app is force-quit
+        saveAudioPlaybackPosition()
+        
         // Check if premium TTS should be used
-        // Also check PromoCodeService for dev/promo access
-        let hasPremiumAccess = isPremiumSubscriber || PromoCodeService.shared.isPromoActivated
+        // Also check PromoCodeService for dev/promo access (respecting simulation mode)
+        let hasPremiumAccess = (isPremiumSubscriber || PromoCodeService.shared.isPromoActivated) && !PromoCodeService.shared.isCustomerSimulationMode
         let canUsePremium = preferredVoiceType == .premium && 
                            openAITTSService.isEnabled && 
                            hasPremiumAccess &&
                            !usageLimitReached
         
+        print("AudioService: hasPremiumAccess=\(hasPremiumAccess), canUsePremium=\(canUsePremium), usageLimitReached=\(usageLimitReached)")
+        
         if canUsePremium {
+            print("AudioService: Using OpenAI TTS")
             playWithOpenAI(verse: verse)
         } else {
+            print("AudioService: Using System TTS")
             playWithSystemTTS(verse: verse)
         }
         
         // Update now playing info
         nowPlayingManager?.updateNowPlayingInfo()
+        
+        // Update Live Activity
+        updateLiveActivity()
     }
     
     // MARK: - OpenAI TTS Playback
     
     private func playWithOpenAI(verse: Verse) {
+        print("AudioService: playWithOpenAI starting for verse \(verse.verse)")
         isLoadingAudio = true
         loadingVerseIndex = currentVerseIndex
         currentAudioSource = .openAI
         
         Task {
             do {
+                print("AudioService: Getting/generating audio for verse \(verse.verse)")
                 let audioData = try await getOrGenerateAudio(for: verse)
                 
+                print("AudioService: Got audio data, size: \(audioData.count) bytes")
                 // Play the audio
                 try await playAudioData(audioData)
                 
+                print("AudioService: Audio playback started successfully")
                 isLoadingAudio = false
                 loadingVerseIndex = nil
                 isPlaying = true
                 isPaused = false
                 
+                // Update Live Activity after state change
+                updateLiveActivity()
+                
                 // Pre-fetch next verse audio
                 prefetchNextVerse()
                 
             } catch {
-                print("OpenAI TTS error: \(error)")
+                print("AudioService: OpenAI TTS error: \(error)")
                 isLoadingAudio = false
                 loadingVerseIndex = nil
                 
                 // Set error message
                 if let openaiError = error as? OpenAITTSError {
                     audioError = openaiError.errorDescription
+                    print("AudioService: OpenAI specific error: \(openaiError.errorDescription ?? "unknown")")
                     
                     // Check for specific errors
                     if case .usageLimitReached = openaiError {
+                        print("AudioService: Usage limit reached!")
                         usageLimitReached = true
                     }
                 }
                 
                 // Fallback to system TTS
+                print("AudioService: Falling back to system TTS")
                 playWithSystemTTS(verse: verse)
             }
         }
@@ -469,10 +808,25 @@ class AudioService: NSObject, ObservableObject {
     }
     
     private func playAudioData(_ data: Data) async throws {
-        audioPlayer = try AVAudioPlayer(data: data)
-        audioPlayer?.delegate = self
-        audioPlayer?.prepareToPlay()
-        audioPlayer?.play()
+        // Ensure audio session is active before playback
+        activateAudioSession()
+        
+        // Create and configure the audio player
+        let player = try AVAudioPlayer(data: data)
+        player.delegate = self
+        player.volume = 1.0
+        player.prepareToPlay()
+        
+        // Store strong reference to prevent deallocation
+        self.audioPlayer = player
+        
+        // Start playback
+        let success = player.play()
+        if !success {
+            print("AudioService: AVAudioPlayer.play() returned false")
+        }
+        
+        print("AudioService: Started playing audio, duration: \(player.duration)s")
     }
     
     private func prefetchNextVerse() {
@@ -506,6 +860,9 @@ class AudioService: NSObject, ObservableObject {
     // MARK: - System TTS Playback (Enhanced)
     
     private func playWithSystemTTS(verse: Verse) {
+        // Ensure audio session is active
+        activateAudioSession()
+        
         currentAudioSource = .systemTTS
         
         let utterance = AVSpeechUtterance(string: verse.text)
@@ -599,6 +956,10 @@ class AudioService: NSObject, ObservableObject {
             }
             isPaused = true
             nowPlayingManager?.updateNowPlayingInfo()
+            updateLiveActivity()
+            
+            // Save position for resume later
+            saveAudioPlaybackPosition()
         }
     }
     
@@ -612,15 +973,21 @@ class AudioService: NSObject, ObservableObject {
             }
             isPaused = false
             nowPlayingManager?.updateNowPlayingInfo()
+            updateLiveActivity()
         }
     }
     
     /// Toggle play/pause
     func togglePlayPause() {
+        print("AudioService: togglePlayPause called - isPlaying: \(isPlaying), isPaused: \(isPaused)")
         if isPaused {
+            print("AudioService: Resuming playback")
             resume()
         } else if isPlaying {
+            print("AudioService: Pausing playback")
             pause()
+        } else {
+            print("AudioService: Neither playing nor paused, cannot toggle")
         }
     }
     
@@ -636,6 +1003,21 @@ class AudioService: NSObject, ObservableObject {
     
     /// Stop playback
     func stop() {
+        stop(savePosition: true)
+    }
+    
+    /// Stop playback with option to save position
+    /// - Parameter savePosition: If true, saves current position for resume later
+    func stop(savePosition: Bool) {
+        // Save position before clearing state (for resume later)
+        // Only save if we have valid playback state and savePosition is true
+        if savePosition && !verses.isEmpty && currentVerseIndex < verses.count {
+            saveAudioPlaybackPosition()
+        } else if !savePosition {
+            // Clear saved position on natural completion
+            clearAudioPlaybackPosition()
+        }
+        
         prefetchTask?.cancel()
         prefetchTask = nil
         
@@ -659,6 +1041,9 @@ class AudioService: NSObject, ObservableObject {
         
         // Clear now playing info
         nowPlayingManager?.clearNowPlayingInfo()
+        
+        // End Live Activity
+        liveActivityService?.stopAudioPlayback()
     }
     
     /// Exit listening mode but keep playing
@@ -706,11 +1091,14 @@ class AudioService: NSObject, ObservableObject {
     
     /// Move to next verse after current finishes
     private func moveToNextVerse() {
+        print("AudioService: moveToNextVerse called - currentIndex: \(currentVerseIndex), totalVerses: \(verses.count)")
         if currentVerseIndex < verses.count - 1 {
             currentVerseIndex += 1
+            print("AudioService: Moving to verse \(currentVerseIndex)")
             playCurrentVerse()
         } else {
             // Finished all verses in this chapter - handle chapter end
+            print("AudioService: Reached end of chapter")
             handleChapterEnd()
         }
     }
@@ -735,7 +1123,8 @@ class AudioService: NSObject, ObservableObject {
             NotificationCenter.default.post(name: .audioChapterCompleted, object: nil)
         } else {
             // Auto-continue is disabled, stop playback completely
-            stop()
+            // Don't save position since this is natural completion
+            stop(savePosition: false)
         }
     }
     
@@ -804,11 +1193,56 @@ class AudioService: NSObject, ObservableObject {
         openAITTSService.selectedVoice.displayName
     }
     
+    // MARK: - Audio Playback Position Persistence
+    
+    /// Save current audio playback position for resume later
+    func saveAudioPlaybackPosition() {
+        guard !verses.isEmpty,
+              currentVerseIndex < verses.count,
+              !translationId.isEmpty,
+              !bookId.isEmpty else {
+            return
+        }
+        
+        let position = AudioPlaybackPosition(
+            translationId: translationId,
+            bookId: bookId,
+            bookName: bookName,
+            chapter: chapterNum,
+            verseIndex: currentVerseIndex,
+            totalVerses: verses.count,
+            voiceType: preferredVoiceType
+        )
+        
+        if let data = try? JSONEncoder().encode(position) {
+            UserDefaults.standard.set(data, forKey: Keys.lastAudioPosition)
+        }
+    }
+    
+    /// Get the last saved audio playback position
+    func getLastAudioPosition() -> AudioPlaybackPosition? {
+        guard let data = UserDefaults.standard.data(forKey: Keys.lastAudioPosition),
+              let position = try? JSONDecoder().decode(AudioPlaybackPosition.self, from: data) else {
+            return nil
+        }
+        
+        // Only return if still valid (not too old)
+        return position.isValid ? position : nil
+    }
+    
+    /// Clear the saved audio playback position
+    func clearAudioPlaybackPosition() {
+        UserDefaults.standard.removeObject(forKey: Keys.lastAudioPosition)
+    }
+    
     // MARK: - Subscription Integration
     
     /// Update premium subscriber status (called by SubscriptionManager)
     func updateSubscriptionStatus(isPremium: Bool) {
-        isPremiumSubscriber = isPremium
+        // Defer @Published property change to avoid SwiftUI view update conflicts
+        DispatchQueue.main.async { [weak self] in
+            self?.isPremiumSubscriber = isPremium
+        }
     }
     
     /// Reset usage limit (called when usage resets)
@@ -837,9 +1271,12 @@ extension AudioService: AVSpeechSynthesizerDelegate {
 
 extension AudioService: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print("AudioService: audioPlayerDidFinishPlaying called, success: \(flag)")
         Task { @MainActor in
             if flag {
                 moveToNextVerse()
+            } else {
+                print("AudioService: Audio playback finished unsuccessfully")
             }
         }
     }

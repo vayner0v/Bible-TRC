@@ -12,13 +12,15 @@ enum OnboardingStep: Int, CaseIterable {
     case welcome = 0
     case appearance = 1
     case audio = 2
-    case subscription = 3
+    case account = 3
+    case subscription = 4
     
     var title: String {
         switch self {
         case .welcome: return "Welcome"
         case .appearance: return "Appearance"
         case .audio: return "Audio"
+        case .account: return "Account"
         case .subscription: return "Premium"
         }
     }
@@ -79,6 +81,9 @@ struct OnboardingView: View {
                     AudioStepView(onContinue: { goToNextStep() })
                         .tag(OnboardingStep.audio)
                     
+                    AccountStepView(onContinue: { goToNextStep() })
+                        .tag(OnboardingStep.account)
+                    
                     SubscriptionStepView(onComplete: { completeOnboarding() })
                         .tag(OnboardingStep.subscription)
                 }
@@ -132,9 +137,9 @@ struct OnboardingProgressBar: View {
         self.currentStep = currentStep
     }
     
-    // Only show steps 2-4 (appearance, audio, subscription)
+    // Only show steps 2-5 (appearance, audio, account, subscription)
     private var displaySteps: [OnboardingStep] {
-        [.appearance, .audio, .subscription]
+        [.appearance, .audio, .account, .subscription]
     }
     
     var body: some View {

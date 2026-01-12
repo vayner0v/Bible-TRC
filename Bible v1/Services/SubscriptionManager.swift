@@ -17,15 +17,23 @@ final class SubscriptionManager: ObservableObject {
     // MARK: - Published Properties
     
     @Published private(set) var products: [Product] = []
+    @Published private(set) var oneTimeProducts: [Product] = []
     @Published private(set) var purchasedProductIDs: Set<String> = []
     @Published private(set) var subscriptionStatus: SubscriptionStatus = .free
+    @Published private(set) var themeStudioPurchased: Bool = false
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     
     // MARK: - Private Properties
     
     private var updateListenerTask: Task<Void, Error>?
-    private let productIDs = SubscriptionProductID.allCases.map { $0.rawValue }
+    private let subscriptionProductIDs = SubscriptionProductID.allCases.map { $0.rawValue }
+    private let oneTimeProductIDs = OneTimePurchaseProductID.allCases.map { $0.rawValue }
+    
+    /// Combined product IDs for loading
+    private var allProductIDs: [String] {
+        subscriptionProductIDs + oneTimeProductIDs
+    }
     
     /// Flag to track if initialization is complete - prevents circular dependency crashes
     private var isInitialized = false
@@ -34,6 +42,7 @@ final class SubscriptionManager: ObservableObject {
     private enum Keys {
         static let subscriptionStatus = "subscription_status_cache"
         static let lastVerificationDate = "subscription_last_verification"
+        static let themeStudioPurchased = "theme_studio_purchased"
     }
     
     // MARK: - Initialization
@@ -41,6 +50,7 @@ final class SubscriptionManager: ObservableObject {
     init() {
         // Load cached subscription status
         loadCachedSubscriptionStatus()
+        loadCachedThemeStudioStatus()
         
         // Start listening for transaction updates
         updateListenerTask = listenForTransactions()
@@ -52,6 +62,7 @@ final class SubscriptionManager: ObservableObject {
         Task { [weak self] in
             await self?.loadProducts()
             await self?.updateSubscriptionStatus()
+            await self?.updateThemeStudioStatus()
         }
     }
     
@@ -63,8 +74,14 @@ final class SubscriptionManager: ObservableObject {
         errorMessage = nil
         
         do {
-            products = try await Product.products(for: productIDs)
+            let allProducts = try await Product.products(for: allProductIDs)
+            
+            // Separate subscriptions and one-time purchases
+            products = allProducts.filter { subscriptionProductIDs.contains($0.id) }
             products.sort { $0.price < $1.price }
+            
+            oneTimeProducts = allProducts.filter { oneTimeProductIDs.contains($0.id) }
+            
             isLoading = false
         } catch {
             errorMessage = "Failed to load products: \(error.localizedDescription)"
@@ -154,19 +171,26 @@ final class SubscriptionManager: ObservableObject {
         var activeProductId: String?
         var willRenew = false
         
-        // Check for active subscriptions
+        // Check for active subscriptions and one-time purchases
         for await result in Transaction.currentEntitlements {
             do {
                 let transaction = try Self.checkVerified(result)
                 
                 // Check if this is one of our subscription products
-                if productIDs.contains(transaction.productID) {
+                if subscriptionProductIDs.contains(transaction.productID) {
                     foundActiveSubscription = true
                     activeProductId = transaction.productID
                     latestExpiration = transaction.expirationDate
                     willRenew = transaction.revocationDate == nil
                     
                     purchasedProductIDs.insert(transaction.productID)
+                }
+                
+                // Check for one-time purchases (Theme Studio)
+                if transaction.productID == OneTimePurchaseProductID.themeStudio.rawValue {
+                    themeStudioPurchased = true
+                    purchasedProductIDs.insert(transaction.productID)
+                    cacheThemeStudioStatus()
                 }
             } catch {
                 print("Failed to verify transaction: \(error)")
@@ -183,7 +207,10 @@ final class SubscriptionManager: ObservableObject {
             )
         } else {
             subscriptionStatus = .free
-            purchasedProductIDs.removeAll()
+            // Only remove subscription product IDs, keep one-time purchases
+            for id in subscriptionProductIDs {
+                purchasedProductIDs.remove(id)
+            }
         }
         
         // Cache the status
@@ -196,6 +223,92 @@ final class SubscriptionManager: ObservableObject {
             object: nil,
             userInfo: ["isPremium": subscriptionStatus.isValid]
         )
+    }
+    
+    // MARK: - Theme Studio Purchase
+    
+    /// Update Theme Studio purchase status
+    func updateThemeStudioStatus() async {
+        for await result in Transaction.currentEntitlements {
+            do {
+                let transaction = try Self.checkVerified(result)
+                
+                if transaction.productID == OneTimePurchaseProductID.themeStudio.rawValue {
+                    themeStudioPurchased = true
+                    cacheThemeStudioStatus()
+                    return
+                }
+            } catch {
+                print("Failed to verify Theme Studio transaction: \(error)")
+            }
+        }
+    }
+    
+    /// Purchase Theme Studio (one-time purchase)
+    @discardableResult
+    func purchaseThemeStudio() async throws -> Bool {
+        guard let product = themeStudioProduct else {
+            throw SubscriptionError.productNotFound
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            let result = try await product.purchase()
+            
+            switch result {
+            case .success(let verification):
+                let transaction = try Self.checkVerified(verification)
+                
+                // Update Theme Studio status
+                themeStudioPurchased = true
+                purchasedProductIDs.insert(transaction.productID)
+                cacheThemeStudioStatus()
+                
+                await transaction.finish()
+                
+                isLoading = false
+                
+                // Notify of Theme Studio purchase
+                NotificationCenter.default.post(
+                    name: .themeStudioPurchased,
+                    object: nil
+                )
+                
+                return true
+                
+            case .userCancelled:
+                isLoading = false
+                return false
+                
+            case .pending:
+                isLoading = false
+                errorMessage = "Purchase is pending approval"
+                return false
+                
+            @unknown default:
+                isLoading = false
+                return false
+            }
+        } catch {
+            isLoading = false
+            errorMessage = "Purchase failed: \(error.localizedDescription)"
+            throw error
+        }
+    }
+    
+    /// Theme Studio product
+    var themeStudioProduct: Product? {
+        oneTimeProducts.first { $0.id == OneTimePurchaseProductID.themeStudio.rawValue }
+    }
+    
+    /// Check if user can use Theme Studio (purchased or promo, but not in simulation mode)
+    var canUseThemeStudio: Bool {
+        if PromoCodeService.shared.isCustomerSimulationMode {
+            return false
+        }
+        return themeStudioPurchased || PromoCodeService.shared.isPromoActivated
     }
     
     // MARK: - Transaction Listening
@@ -258,32 +371,75 @@ final class SubscriptionManager: ObservableObject {
         }
     }
     
+    /// Cache Theme Studio purchase status
+    private func cacheThemeStudioStatus() {
+        UserDefaults.standard.set(themeStudioPurchased, forKey: Keys.themeStudioPurchased)
+    }
+    
+    /// Load cached Theme Studio status
+    private func loadCachedThemeStudioStatus() {
+        themeStudioPurchased = UserDefaults.standard.bool(forKey: Keys.themeStudioPurchased)
+    }
+    
     // MARK: - Promo Code Access
     
     /// Activate premium access via promo code
     func activatePromoAccess() {
-        subscriptionStatus = SubscriptionStatus(
+        // Defer @Published property changes to avoid SwiftUI view update conflicts
+        let newStatus = SubscriptionStatus(
             tier: .premium,
             productId: "promo_code",
             expirationDate: Date.distantFuture,
             isActive: true,
             willRenew: false
         )
-        cacheSubscriptionStatus()
         
-        // Notify via NotificationCenter to avoid circular dependency
-        NotificationCenter.default.post(
-            name: .subscriptionStatusChanged,
-            object: nil,
-            userInfo: ["isPremium": true]
+        // Use async to break synchronous call chain during view body computation
+        DispatchQueue.main.async { [weak self] in
+            self?.subscriptionStatus = newStatus
+            self?.cacheSubscriptionStatus()
+            
+            // Notify via NotificationCenter to avoid circular dependency
+            NotificationCenter.default.post(
+                name: .subscriptionStatusChanged,
+                object: nil,
+                userInfo: ["isPremium": true]
+            )
+        }
+    }
+    
+    /// Deactivate promo access (for customer simulation mode)
+    func deactivatePromoAccess() {
+        let newStatus = SubscriptionStatus(
+            tier: .free,
+            productId: nil,
+            expirationDate: nil,
+            isActive: false,
+            willRenew: false
         )
+        
+        // Use async to break synchronous call chain during view body computation
+        DispatchQueue.main.async { [weak self] in
+            self?.subscriptionStatus = newStatus
+            
+            // Notify via NotificationCenter
+            NotificationCenter.default.post(
+                name: .subscriptionStatusChanged,
+                object: nil,
+                userInfo: ["isPremium": false]
+            )
+        }
     }
     
     // MARK: - Helper Properties
     
     /// Check if user has an active premium subscription
     var isPremium: Bool {
-        subscriptionStatus.isValid || PromoCodeService.shared.isPromoActivated
+        // Return false when in customer simulation mode
+        if PromoCodeService.shared.isCustomerSimulationMode {
+            return false
+        }
+        return subscriptionStatus.isValid || PromoCodeService.shared.isPromoActivated
     }
     
     /// Get the monthly product

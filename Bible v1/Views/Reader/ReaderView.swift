@@ -31,6 +31,13 @@ struct ReaderView: View {
     @State private var lastScrollY: CGFloat = 0
     @State private var scrollAccumulator: CGFloat = 0
     
+    // TRC Insight state
+    @State private var insightState: InsightState = .idle
+    @State private var insightVerseReference: VerseReference?
+    @State private var insightStreamingContent: String = ""
+    @State private var currentInsightRequestId: UUID? // Track current request to prevent stale updates
+    @StateObject private var insightService = VerseInsightService.shared
+    
     var body: some View {
         ZStack {
             // Background
@@ -87,6 +94,11 @@ struct ReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .audioChapterCompleted)) { _ in
             handleAudioChapterCompleted()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resumeAudioFromPosition)) { notification in
+            if let position = notification.userInfo?["position"] as? AudioPlaybackPosition {
+                handleResumeFromPosition(position)
+            }
         }
         .sheet(isPresented: $showTranslationPicker) {
             TranslationPicker(viewModel: viewModel)
@@ -213,6 +225,47 @@ struct ReaderView: View {
         }
     }
     
+    /// Handle resuming audio from a saved position
+    private func handleResumeFromPosition(_ position: AudioPlaybackPosition) {
+        Task {
+            // Navigate to the saved position first
+            await viewModel.navigateTo(
+                translationId: position.translationId,
+                bookId: position.bookId,
+                chapter: position.chapter
+            )
+            
+            // Wait for chapter to load
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
+            
+            // Start playback from the saved verse
+            if let chapter = viewModel.currentChapter {
+                showAudioPlayer = true
+                audioService.play(
+                    verses: chapter.verses,
+                    reference: chapter.reference,
+                    startingAt: position.verseIndex,
+                    language: audioService.languageCode(for: viewModel.selectedTranslation?.language ?? "eng"),
+                    translationId: position.translationId,
+                    bookId: position.bookId,
+                    bookName: position.bookName,
+                    chapter: position.chapter,
+                    voiceType: position.voiceType
+                ) { index in
+                    scrollToVerse(index + 1)
+                }
+                
+                // Scroll to the verse
+                scrollToVerse(position.verseIndex + 1)
+                
+                // Show listening mode if enabled
+                if audioService.immersiveModeEnabled {
+                    showListeningMode = true
+                }
+            }
+        }
+    }
+    
     @ViewBuilder
     private func versesScrollView(chapter: Chapter) -> some View {
         ScrollViewReader { proxy in
@@ -229,6 +282,19 @@ struct ReaderView: View {
                 LazyVStack(spacing: 0) {
                     // Top padding for content
                     Color.clear.frame(height: 16)
+                    
+                    // Chapter Header - Book name, chapter number, translation
+                    ChapterHeaderView(
+                        bookName: viewModel.selectedBook?.displayName ?? "Book",
+                        chapterNumber: viewModel.currentChapterNumber,
+                        translationId: viewModel.selectedTranslation?.id ?? "KJV",
+                        themeManager: themeManager,
+                        onBookTap: { showBookPicker = true },
+                        onTranslationTap: {
+                            NotificationCenter.default.post(name: .showTranslationPicker, object: nil)
+                        }
+                    )
+                    .padding(.bottom, 24)
                     
                     // Render based on paragraph mode setting
                     if settings.paragraphMode {
@@ -287,6 +353,25 @@ struct ReaderView: View {
             }
             // Use a composite ID to force re-render when settings change
             .id("\(verse.verse)-\(settings.effectiveReaderFontSize)-\(settings.readerLineSpacing)-\(settings.paragraphMode)")
+            
+            // Show TRC Insight overlay below this verse if it's the active one
+            if let insightRef = insightVerseReference,
+               let verseRef = reference,
+               insightRef.verse == verseRef.verse && insightRef.chapter == verseRef.chapter,
+               insightState.isActive {
+                TRCInsightOverlay(
+                    reference: insightRef,
+                    state: insightState,
+                    onDismiss: dismissInsight,
+                    onSave: saveInsight,
+                    onShare: shareInsightContent
+                )
+                .id("insight-\(insightRef.chapter)-\(insightRef.verse)")
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)).combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .scale(scale: 0.95))
+                ))
+            }
         }
     }
     
@@ -389,6 +474,136 @@ struct ReaderView: View {
                let rootVC = window.rootViewController {
                 rootVC.present(activityVC, animated: true)
             }
+            
+        case .trcInsight(let analysisType):
+            // Trigger TRC Insight analysis
+            startInsightAnalysis(for: reference, type: analysisType)
+        }
+    }
+    
+    // MARK: - TRC Insight Methods
+    
+    private func startInsightAnalysis(for reference: VerseReference, type: InsightAnalysisType) {
+        // Cancel any existing AI request first
+        TRCAIService.shared.cancel()
+        
+        // Generate a new request ID to track this specific request
+        let requestId = UUID()
+        currentInsightRequestId = requestId
+        
+        // Reset streaming content for new request
+        insightStreamingContent = ""
+        
+        // Set the new verse reference and thinking state together
+        // This ensures the overlay shows for the correct verse immediately
+        insightVerseReference = reference
+        insightState = .thinking(type)
+        
+        HapticManager.shared.lightImpact()
+        
+        // Scroll to show the insight overlay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation {
+                scrollProxy?.scrollTo("insight-\(reference.chapter)-\(reference.verse)", anchor: .center)
+            }
+        }
+        
+        // Call AI service for verse analysis
+        Task {
+            await performVerseAnalysis(reference: reference, type: type, requestId: requestId)
+        }
+    }
+    
+    private func performVerseAnalysis(reference: VerseReference, type: InsightAnalysisType, requestId: UUID) async {
+        let aiService = TRCAIService.shared
+        
+        // Create a temporary conversation for this analysis
+        let conversation = ChatConversation(id: UUID(), currentMode: .study)
+        
+        // Capture the current request ID for validation
+        let expectedRequestId = requestId
+        
+        aiService.analyzeVerse(
+            verseReference: reference,
+            analysisType: type,
+            conversation: conversation,
+            translationId: viewModel.selectedTranslation?.id ?? "BSB",
+            onToken: { token in
+                Task { @MainActor in
+                    // Only update if this is still the current request
+                    guard self.currentInsightRequestId == expectedRequestId else { return }
+                    self.insightStreamingContent += token
+                    self.insightState = .streaming(type, self.insightStreamingContent)
+                }
+            },
+            onComplete: { result in
+                Task { @MainActor in
+                    // Only update if this is still the current request
+                    guard self.currentInsightRequestId == expectedRequestId else {
+                        print("TRC Insight: Ignoring stale completion for request \(expectedRequestId)")
+                        return
+                    }
+                    
+                    switch result {
+                    case .success(let response):
+                        // Create the insight with the reference we started with
+                        let insight = VerseInsight.from(
+                            reference: reference,
+                            analysisType: type,
+                            content: response.answerMarkdown,
+                            citations: response.citations.map { $0.reference }
+                        )
+                        
+                        self.insightState = .complete(insight)
+                        HapticManager.shared.success()
+                        
+                    case .failure(let error):
+                        self.insightState = .error(error.localizedDescription)
+                        HapticManager.shared.error()
+                    }
+                }
+            }
+        )
+    }
+    
+    private func dismissInsight() {
+        // Cancel any pending AI request
+        TRCAIService.shared.cancel()
+        
+        // Clear request ID FIRST to prevent any pending callbacks from updating state
+        currentInsightRequestId = nil
+        
+        // Clear all insight state
+        insightState = .idle
+        insightVerseReference = nil
+        insightStreamingContent = ""
+    }
+    
+    private func saveInsight(_ insight: VerseInsight) {
+        insightService.saveInsight(insight)
+        
+        // Capture the request ID at save time
+        let savedRequestId = currentInsightRequestId
+        
+        // Show brief feedback then dismiss only if no new request started
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Only dismiss if this is still the same request (no new insight started)
+            if self.currentInsightRequestId == savedRequestId {
+                self.dismissInsight()
+            }
+        }
+    }
+    
+    private func shareInsightContent(_ content: String) {
+        let activityVC = UIActivityViewController(
+            activityItems: [content],
+            applicationActivities: nil
+        )
+        
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            rootVC.present(activityVC, animated: true)
         }
     }
 }
@@ -1265,6 +1480,67 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+// MARK: - Chapter Header View
+
+/// Beautiful chapter header displayed above verses
+struct ChapterHeaderView: View {
+    let bookName: String
+    let chapterNumber: Int
+    let translationId: String
+    @ObservedObject var themeManager: ThemeManager
+    let onBookTap: () -> Void
+    let onTranslationTap: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // Main chapter title - tappable to open book picker
+            Button(action: onBookTap) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(bookName)
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .foregroundColor(themeManager.textColor)
+                    
+                    Text("\(chapterNumber)")
+                        .font(.system(size: 42, weight: .light, design: .serif))
+                        .foregroundColor(themeManager.accentColor)
+                }
+            }
+            .buttonStyle(.plain)
+            
+            // Decorative divider with translation badge
+            HStack(spacing: 12) {
+                // Left line
+                Rectangle()
+                    .fill(themeManager.dividerColor)
+                    .frame(height: 1)
+                
+                // Translation badge - tappable
+                Button(action: onTranslationTap) {
+                    Text(translationId.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundColor(themeManager.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .strokeBorder(themeManager.accentColor.opacity(0.3), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                
+                // Right line
+                Rectangle()
+                    .fill(themeManager.dividerColor)
+                    .frame(height: 1)
+            }
+            .padding(.horizontal, 40)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 }
 

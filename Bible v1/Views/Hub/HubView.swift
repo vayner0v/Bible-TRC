@@ -126,6 +126,12 @@ struct HubView: View {
         case .dailyRoutine:
             DailyRoutineView(viewModel: viewModel)
             
+        case .routineManager:
+            RoutineManagerView(viewModel: viewModel, selectedConfiguration: .constant(nil))
+            
+        case .routineAnalytics:
+            RoutineAnalyticsView(viewModel: viewModel)
+            
         case .weeklyRecap:
             WeeklyRecapView(viewModel: viewModel)
             
@@ -140,7 +146,7 @@ struct HubView: View {
             }
             
         case .widgets:
-            WidgetsView()
+            WidgetStudioView()
         }
     }
 }

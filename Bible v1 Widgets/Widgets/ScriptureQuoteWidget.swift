@@ -12,93 +12,101 @@ struct ScriptureQuoteWidget: Widget {
     let kind: String = "ScriptureQuoteWidget"
     
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: ScriptureQuoteProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: ScriptureQuoteIntent.self,
+            provider: ScriptureQuoteIntentProvider()
+        ) { entry in
             ScriptureQuoteWidgetView(entry: entry)
         }
         .configurationDisplayName("Scripture Quote")
         .description("Display your favorite verse")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-    }
-}
-
-struct ScriptureQuoteProvider: TimelineProvider {
-    func placeholder(in context: Context) -> BibleWidgetEntry {
-        BibleWidgetEntry.placeholder
-    }
-    
-    func getSnapshot(in context: Context, completion: @escaping (BibleWidgetEntry) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        completion(entry)
-    }
-    
-    func getTimeline(in context: Context, completion: @escaping (Timeline<BibleWidgetEntry>) -> Void) {
-        let data = WidgetDataProvider.shared.fetchWidgetData()
-        let entry = BibleWidgetEntry(date: Date(), data: data, configuration: nil)
-        
-        // Static content, refresh daily
-        let tomorrow = Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
-        let timeline = Timeline(entries: [entry], policy: .after(tomorrow))
-        completion(timeline)
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 struct ScriptureQuoteWidgetView: View {
-    let entry: BibleWidgetEntry
+    let entry: ScriptureQuoteEntry
     
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var colorScheme
     
-    private var theme: WidgetTheme {
-        colorScheme == .dark ? .dark : .light
+    private var styleConfig: WidgetStyleConfig {
+        WidgetStyleConfig(preset: entry.configuration.resolvedStylePreset, colorScheme: colorScheme)
     }
     
-    private let sampleVerse = "\"The Lord is my shepherd; I shall not want. He maketh me to lie down in green pastures: he leadeth me beside the still waters.\""
-    private let sampleReference = "Psalm 23:1-2"
+    // Use verse of the day if configured, otherwise use first favorite or default
+    private var verseText: String {
+        if entry.configuration.useVerseOfDay {
+            return entry.data.verseOfDayText
+        } else if let firstFavorite = entry.data.favoriteVerses.first {
+            return firstFavorite.text
+        }
+        return entry.data.verseOfDayText
+    }
+    
+    private var verseReference: String {
+        if entry.configuration.useVerseOfDay {
+            return entry.data.verseOfDayReference
+        } else if let firstFavorite = entry.data.favoriteVerses.first {
+            return firstFavorite.reference
+        }
+        return entry.data.verseOfDayReference
+    }
     
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            mediumView
+        Group {
+            switch family {
+            case .systemSmall:
+                smallView
+            case .systemMedium:
+                mediumView
+            case .systemLarge:
+                largeView
+            case .accessoryCircular:
+                accessoryCircularView
+            case .accessoryRectangular:
+                accessoryRectangularView
+            case .accessoryInline:
+                accessoryInlineView
+            default:
+                mediumView
+            }
         }
+        .widgetURL(URL(string: "biblev1://scripture-quote"))
     }
     
     // MARK: - Small View
     
     private var smallView: some View {
         ZStack {
-            WidgetGradients.lavender
-            
             VStack(spacing: 6) {
                 Image(systemName: "quote.opening")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(styleConfig.textColor.opacity(0.6))
                 
                 Spacer()
                 
-                Text(sampleVerse)
+                Text(verseText)
                     .font(.system(size: 11, design: .serif))
-                    .foregroundColor(.white)
+                    .foregroundColor(styleConfig.textColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
                 
                 Spacer()
                 
-                Text(sampleReference)
+                Text(verseReference)
                     .font(.caption2)
                     .fontWeight(.medium)
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(styleConfig.textColor.opacity(0.8))
             }
             .padding(12)
         }
         .containerBackground(for: .widget) {
-            WidgetGradients.lavender
+            styleConfig.background
         }
     }
     
@@ -106,32 +114,30 @@ struct ScriptureQuoteWidgetView: View {
     
     private var mediumView: some View {
         ZStack {
-            WidgetGradients.lavender
-            
             VStack(alignment: .center, spacing: 8) {
                 Image(systemName: "quote.opening")
                     .font(.title3)
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(styleConfig.textColor.opacity(0.6))
                 
                 Spacer()
                 
-                Text(sampleVerse)
+                Text(verseText)
                     .font(.system(size: 14, design: .serif))
-                    .foregroundColor(.white)
+                    .foregroundColor(styleConfig.textColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                 
                 Spacer()
                 
-                Text("— \(sampleReference)")
+                Text("— \(verseReference)")
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundColor(styleConfig.textColor.opacity(0.9))
             }
             .padding(16)
         }
         .containerBackground(for: .widget) {
-            WidgetGradients.lavender
+            styleConfig.background
         }
     }
     
@@ -139,18 +145,16 @@ struct ScriptureQuoteWidgetView: View {
     
     private var largeView: some View {
         ZStack {
-            WidgetGradients.lavender
-            
             VStack(spacing: 16) {
                 Image(systemName: "quote.opening")
                     .font(.title)
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(styleConfig.textColor.opacity(0.5))
                 
                 Spacer()
                 
-                Text(sampleVerse)
+                Text(verseText)
                     .font(.system(size: 18, weight: .regular, design: .serif))
-                    .foregroundColor(.white)
+                    .foregroundColor(styleConfig.textColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(8)
                     .padding(.horizontal, 8)
@@ -159,37 +163,91 @@ struct ScriptureQuoteWidgetView: View {
                 
                 Image(systemName: "quote.closing")
                     .font(.title)
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(styleConfig.textColor.opacity(0.5))
                 
-                Text("— \(sampleReference)")
+                Text("— \(verseReference)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(styleConfig.textColor)
                     .padding(.top, 8)
             }
             .padding(20)
         }
         .containerBackground(for: .widget) {
-            WidgetGradients.lavender
+            styleConfig.background
         }
+    }
+    
+    // MARK: - Lock Screen Views
+    
+    private var accessoryCircularView: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            Image(systemName: "text.quote")
+                .font(.title2)
+        }
+        .widgetAccentable()
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryRectangularView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(verseReference)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .widgetAccentable()
+            
+            Text(verseText)
+                .font(.system(size: 12))
+                .lineLimit(4)
+                .minimumScaleFactor(0.9)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { }
+    }
+    
+    private var accessoryInlineView: some View {
+        Label(verseReference, systemImage: "text.quote")
+            .containerBackground(for: .widget) { }
     }
 }
 
 #Preview(as: .systemSmall) {
     ScriptureQuoteWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
 }
 
 #Preview(as: .systemMedium) {
     ScriptureQuoteWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
 }
 
 #Preview(as: .systemLarge) {
     ScriptureQuoteWidget()
 } timeline: {
-    BibleWidgetEntry.placeholder
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
 }
 
+#Preview(as: .accessoryCircular) {
+    ScriptureQuoteWidget()
+} timeline: {
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
+}
+
+#Preview(as: .accessoryRectangular) {
+    ScriptureQuoteWidget()
+} timeline: {
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
+}
+
+#Preview(as: .accessoryInline) {
+    ScriptureQuoteWidget()
+} timeline: {
+    ScriptureQuoteEntry(date: Date(), data: .placeholder, configuration: ScriptureQuoteIntent())
+}

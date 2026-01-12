@@ -228,7 +228,7 @@ struct SearchView: View {
 /// Search result row
 struct SearchResultRow: View {
     let result: SearchResult
-    let themeManager: ThemeManager
+    @ObservedObject var themeManager: ThemeManager
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -255,7 +255,7 @@ struct SearchResultRow: View {
 struct SearchTipRow: View {
     let example: String
     let description: String
-    let themeManager: ThemeManager
+    @ObservedObject var themeManager: ThemeManager
     
     var body: some View {
         HStack(spacing: 12) {

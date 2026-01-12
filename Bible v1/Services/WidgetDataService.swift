@@ -46,8 +46,27 @@ final class WidgetDataService: ObservableObject {
     
     /// Save widget configurations
     func saveConfigs() {
+        // Save in original format for main app
         guard let data = try? JSONEncoder().encode(widgetConfigs) else { return }
         userDefaults?.set(data, forKey: AppGroupConstants.widgetConfigsKey)
+        
+        // Also save in simplified format for widget extension
+        let widgetExtConfigs = widgetConfigs.map { config -> [String: Any] in
+            var dict: [String: Any] = [
+                "id": config.id.uuidString,
+                "name": config.name,
+                "widgetType": config.widgetType.rawValue,
+                "size": config.size.rawValue
+            ]
+            if let presetId = config.presetId {
+                dict["presetId"] = presetId
+            }
+            return dict
+        }
+        if let jsonData = try? JSONSerialization.data(withJSONObject: widgetExtConfigs) {
+            userDefaults?.set(jsonData, forKey: "widget_configs_simplified")
+        }
+        
         userDefaults?.synchronize()
         refreshWidgets()
     }
@@ -102,7 +121,7 @@ final class WidgetDataService: ObservableObject {
     
     /// Create a new config from a preset
     func createFromPreset(_ preset: WidgetPreset, type: BibleWidgetType, size: WidgetSize) -> WidgetConfig {
-        var config = preset.config
+        let config = preset.config
         return WidgetConfig(
             id: UUID(),
             widgetType: type,
@@ -153,7 +172,7 @@ final class WidgetDataService: ObservableObject {
         prayer: (active: Int, answered: Int, lastTime: Date?)? = nil,
         habits: (progress: Double, completed: Int, total: Int, streak: Int)? = nil,
         favorites: [FavoriteVerseData]? = nil,
-        mood: (last: String, date: Date?, gratitudeStreak: Int, todayCompleted: Bool)? = nil,
+        mood: (last: String, history: [String], date: Date?, gratitudeStreak: Int, todayCompleted: Bool)? = nil,
         countdown: (date: Date, title: String)? = nil,
         theme: String? = nil
     ) {
@@ -191,6 +210,7 @@ final class WidgetDataService: ObservableObject {
         
         if let m = mood {
             data.lastMood = m.last
+            data.moodHistory = m.history
             data.lastMoodDate = m.date
             data.gratitudeStreak = m.gratitudeStreak
             data.todayGratitudeCompleted = m.todayCompleted
@@ -254,9 +274,10 @@ final class WidgetDataService: ObservableObject {
     }
     
     /// Update mood/gratitude data
-    func updateMoodGratitude(lastMood: String?, lastDate: Date?, gratitudeStreak: Int, todayCompleted: Bool) {
+    func updateMoodGratitude(lastMood: String?, moodHistory: [String], lastDate: Date?, gratitudeStreak: Int, todayCompleted: Bool) {
         var data = widgetData
         data.lastMood = lastMood
+        data.moodHistory = moodHistory
         data.lastMoodDate = lastDate
         data.gratitudeStreak = gratitudeStreak
         data.todayGratitudeCompleted = todayCompleted
@@ -314,4 +335,3 @@ extension WidgetDataService {
         return service
     }
 }
-

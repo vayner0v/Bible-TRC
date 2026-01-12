@@ -264,6 +264,29 @@ class BibleViewModel: ObservableObject {
         await loadCurrentChapter()
     }
     
+    /// Navigate to a specific translation, book, and chapter
+    func navigateTo(translationId: String, bookId: String, chapter: Int) async {
+        // Find and select the translation if different
+        if selectedTranslation?.id != translationId {
+            if let translation = translations.first(where: { $0.id == translationId }) {
+                await selectTranslation(translation)
+            }
+        }
+        
+        // Find and select the book if different
+        if selectedBook?.id != bookId {
+            if let book = books.first(where: { $0.id == bookId }) {
+                await selectBook(book, chapter: chapter)
+                return
+            }
+        }
+        
+        // Just navigate to the chapter if book is already selected
+        if currentChapterNumber != chapter {
+            await goToChapter(chapter)
+        }
+    }
+    
     // MARK: - Secondary Translation (Parallel View)
     
     /// Set secondary translation for parallel view
